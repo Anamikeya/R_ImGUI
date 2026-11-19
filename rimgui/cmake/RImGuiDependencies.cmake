@@ -18,9 +18,16 @@ set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
 
 if(RIMGUI_GLFW_DIR)
 	add_subdirectory("${RIMGUI_GLFW_DIR}" "${CMAKE_BINARY_DIR}/_deps/glfw" EXCLUDE_FROM_ALL SYSTEM)
+	set(_glfw "${RIMGUI_GLFW_DIR}")
 else()
 	FetchContent_Declare(rimgui_glfw GIT_REPOSITORY https://github.com/glfw/glfw.git GIT_TAG ${RIMGUI_GLFW_COMMIT})
 	FetchContent_MakeAvailable(rimgui_glfw)
+	set(_glfw "${rimgui_glfw_SOURCE_DIR}")
+endif()
+# GLFW ships an OpenGL loader (glad) and stb_image_write in deps/; the research kit uses both.
+if(NOT TARGET rimgui_glfw_deps)
+	add_library(rimgui_glfw_deps INTERFACE)
+	target_include_directories(rimgui_glfw_deps SYSTEM INTERFACE "${_glfw}/deps")
 endif()
 
 if(RIMGUI_IMGUI_DIR)

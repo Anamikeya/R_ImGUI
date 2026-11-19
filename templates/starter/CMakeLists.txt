@@ -12,7 +12,7 @@ if(NOT TARGET rimgui)
 	if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/rimgui/CMakeLists.txt")
 		add_subdirectory(rimgui)
 	else()
-		add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../rimgui" "${CMAKE_BINARY_DIR}/rimgui")
+		add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../rimgui" "${CMAKE_BINARY_DIR}/rimgui")
 	endif()
 endif()
 

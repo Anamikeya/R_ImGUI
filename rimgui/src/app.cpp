@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <iostream>
@@ -88,9 +89,12 @@ void reset_layout()
 int run(const AppConfig &config, const std::function<void()> &frame, int argc, char **argv)
 {
 	std::string screenshot;
+	int screenshot_frame = 60;
 	for (int i = 1; i < argc; ++i) {
 		if (std::string_view(argv[i]) == "--screenshot" && i + 1 < argc) {
 			screenshot = argv[++i];
+		} else if (std::string_view(argv[i]) == "--screenshot-frame" && i + 1 < argc) {
+			screenshot_frame = std::max(1, std::atoi(argv[++i]));
 		}
 	}
 
@@ -99,9 +103,13 @@ int run(const AppConfig &config, const std::function<void()> &frame, int argc, c
 		std::cerr << "The window system could not start.\n";
 		return 1;
 	}
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+	const auto context = [](int major, int minor) {
+		glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, major);
+		glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, minor);
+		glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+		glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
+	};
+	context(config.gl_major, config.gl_minor);
 	glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
 	// A screenshot run does not take the keyboard from whatever has it.
 	glfwWindowHint(GLFW_FOCUS_ON_SHOW, screenshot.empty() ? GLFW_TRUE : GLFW_FALSE);
@@ -117,6 +125,10 @@ int run(const AppConfig &config, const std::function<void()> &frame, int argc, c
 	const float fit = std::min({std::max(scale, 1.0f), 0.9f * float(area_width) / float(config.width), 0.9f * float(area_height) / float(config.height)});
 	const int width = std::max(int(float(config.width) * fit), 640), height = std::max(int(float(config.height) * fit), 400);
 	GLFWwindow *window = glfwCreateWindow(width, height, config.title.c_str(), nullptr, nullptr);
+	if (!window && (config.gl_major != 3 || config.gl_minor != 3)) {
+		context(3, 3);
+		window = glfwCreateWindow(width, height, config.title.c_str(), nullptr, nullptr);
+	}
 	if (!window) {
 		std::cerr << "The window could not be made (OpenGL 3.3 is needed).\n";
 		glfwTerminate();
@@ -146,6 +158,9 @@ int run(const AppConfig &config, const std::function<void()> &frame, int argc, c
 	ImGui_ImplGlfw_InitForOpenGL(window, true);
 	ImGui_ImplOpenGL3_Init("#version 330");
 
+	if (config.on_start) {
+		config.on_start();
+	}
 	quit_requested = false;
 	int frames = 0;
 	int exit_code = 0;
@@ -173,7 +188,7 @@ int run(const AppConfig &config, const std::function<void()> &frame, int argc, c
 		glClearColor(config.clear_color.x, config.clear_color.y, config.clear_color.z, config.clear_color.w);
 		glClear(GL_COLOR_BUFFER_BIT);
 		ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-		if (!screenshot.empty() && ++frames == 60) {
+		if (!screenshot.empty() && ++frames == screenshot_frame) {
 			if (!save_ppm(screenshot, fb_width, fb_height)) {
 				std::cerr << "Could not write " << screenshot << '\n';
 				exit_code = 1;
@@ -183,6 +198,9 @@ int run(const AppConfig &config, const std::function<void()> &frame, int argc, c
 		glfwSwapBuffers(window);
 	}
 
+	if (config.on_exit) {
+		config.on_exit();
+	}
 	ImGui_ImplOpenGL3_Shutdown();
 	ImGui_ImplGlfw_Shutdown();
 	ImGui::DestroyContext();

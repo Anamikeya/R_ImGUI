@@ -25,6 +25,11 @@ struct AppConfig {
 	std::string title = "R_ImGUI Application";
 	int width = 1440, height = 900;  // At 100% scale; grown with the monitor's scale and kept within its work area.
 	std::string layout_file = "imgui.ini"; // Where docking and window positions are kept; empty keeps none.
+	// The OpenGL context asked for; 3.3 core is used when the driver cannot give it.
+	int gl_major = 3, gl_minor = 3;
+	// Called once OpenGL and ImGui are ready, before the first frame; and once after the last, while OpenGL is still
+	// there, to free what on_start made.
+	std::function<void()> on_start, on_exit;
 	int toolbar_rows = 1;            // How tall the docked toolbar strip (DockAreas::top) is first made, in rows.
 	// Docks windows the first time (no saved layout yet), or after reset_layout().
 	std::function<void(const DockAreas &)> first_layout;
@@ -35,6 +40,7 @@ struct AppConfig {
 // Opens the window and calls `frame` once a frame, between ImGui::NewFrame and ImGui::Render, until the window is
 // closed or quit() is called. Returns the process exit code. Options it reads from the command line:
 //   --screenshot <file.ppm>  saves the window after its 60th frame, then quits (for docs and tests)
+//   --screenshot-frame <n>   after the nth frame instead
 int run(const AppConfig &config, const std::function<void()> &frame, int argc = 0, char **argv = nullptr);
 
 // Ends the loop after this frame.
