@@ -1,0 +1,42 @@
+#version 460
+// Specular light for one roughness, on one face of one level: the environment convolved with GGX by importance
+// sampling, the source level chosen from each sample's probability (Colbert and Krivanek 2007). As
+// rimgui_prefilter.frag.
+#include "rimgui_vk.glsl"
+#include "rimgui_vk_cube.glsl"
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(push_constant, scalar) uniform Constants { uint source; uint target; int size; int face; float source_size; float roughness; } pc;
+
+void main()
+{
+    ivec2 texel;
+    vec2 uv;
+    if (!face_texel(pc.size, texel, uv)) return;
+    vec3 n = cube_direction(pc.face, uv);
+    if (pc.roughness < 0.001) {
+        imageStore(u_images[pc.target], texel, vec4(sample_cube(pc.source, n, 0.0).rgb, 1.0));
+        return;
+    }
+    vec3 v = n; // The split sum's assumption: view along the normal.
+    float a = pc.roughness * pc.roughness;
+    const uint count = 256u;
+    vec3 sum = vec3(0.0);
+    float weight = 0.0;
+    float texel_angle = 4.0 * 3.14159265359 / (6.0 * pc.source_size * pc.source_size);
+    for (uint i = 0u; i < count; ++i) {
+        vec3 h = importance_sample_ggx(hammersley(i, count), n, a);
+        vec3 l = normalize(2.0 * dot(v, h) * h - v);
+        float NoL = dot(n, l);
+        if (NoL <= 0.0) continue;
+        float NoH = max(dot(n, h), 0.0);
+        float a2 = a * a;
+        float d = NoH * NoH * (a2 - 1.0) + 1.0;
+        float D = a2 / (3.14159265359 * d * d);
+        float pdf = D * NoH / (4.0 * max(dot(h, v), 1e-4)) + 1e-4;
+        float sample_angle = 1.0 / (float(count) * pdf);
+        float level = max(0.5 * log2(sample_angle / texel_angle) + 1.0, 0.0);
+        sum += sample_cube(pc.source, l, level).rgb * NoL;
+        weight += NoL;
+    }
+    imageStore(u_images[pc.target], texel, vec4(sum / max(weight, 1e-4), 1.0));
+}

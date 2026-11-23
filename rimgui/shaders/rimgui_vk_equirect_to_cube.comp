@@ -1,0 +1,18 @@
+#version 460
+// An equirectangular (latitude-longitude) image onto one cubemap face. As rimgui_equirect_to_cube.frag.
+#include "rimgui_vk.glsl"
+#include "rimgui_vk_cube.glsl"
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(push_constant, scalar) uniform Constants { uint source; uint target; int size; int face; float source_size; float roughness; } pc;
+
+void main()
+{
+    ivec2 texel;
+    vec2 uv;
+    if (!face_texel(pc.size, texel, uv)) return;
+    vec3 d = cube_direction(pc.face, uv);
+    vec2 e = vec2(atan(d.z, d.x) / 6.28318530718 + 0.5, acos(clamp(d.y, -1.0, 1.0)) / 3.14159265359);
+    // The top level everywhere, wrapping in u across the seam.
+    vec3 c = textureLod(sampler2D(u_textures[nonuniformEXT(pc.source)], u_samplers[SAMPLER_LINEAR_REPEAT]), e, 0.0).rgb;
+    imageStore(u_images[pc.target], texel, vec4(c, 1.0));
+}

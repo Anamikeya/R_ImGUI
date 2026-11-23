@@ -41,4 +41,15 @@ if(RIMGUI_HAS_VULKAN)
 	endif()
 	add_test(NAME rimgui_vk_tests COMMAND rimgui_vk_tests --vulkan --hidden --validation)
 	set_tests_properties(rimgui_vk_tests PROPERTIES TIMEOUT 120)
+
+	# RenderLabVulkan under the validation layers: any message from them is a logged error, so the check fails.
+	function(renderlab_vk_check name)
+		add_test(NAME renderlab_vk.${name} COMMAND RenderLabVulkan --check --hidden --validation --no-settings
+			--log "${CMAKE_CURRENT_BINARY_DIR}/renderlab_vk.${name}.log" ${ARGN})
+		set_tests_properties(renderlab_vk.${name} PROPERTIES FIXTURES_REQUIRED renderlab_files TIMEOUT 120)
+	endfunction()
+	renderlab_vk_check(sky --technique "Sky and environment")
+	renderlab_vk_check(inspect_output --technique "Sky and environment" --show "Output (HDR)")
+	renderlab_vk_check(compare_split --technique "Sky and environment" --compare "Sky and environment")
+	renderlab_vk_check(fixed_resolution --technique "Sky and environment" --resolution 1920x1080)
 endif()

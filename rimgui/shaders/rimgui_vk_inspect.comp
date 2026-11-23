@@ -1,0 +1,25 @@
+#version 460
+// One texture as data, into the view or the Textures panel's preview: a channel, mapped from [min, max] to black and
+// white; depth turned into metres first. As rimgui_inspect.frag.
+#include "rimgui_vk.glsl"
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(push_constant, scalar) uniform Constants {
+    uint texture; uint target; ivec2 size;
+    int channel; float range_min; float range_max; int depth; int channels; float near_plane; float far_plane;
+} pc;
+
+void main()
+{
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    if (p.x >= pc.size.x || p.y >= pc.size.y) return;
+    vec2 uv = (vec2(p) + 0.5) / vec2(pc.size);
+    vec4 t = sample_2d_lod(pc.texture, uv, 0.0);
+    if (pc.depth == 1) {
+        float z = t.r * 2.0 - 1.0;
+        t = vec4(2.0 * pc.near_plane * pc.far_plane / (pc.far_plane + pc.near_plane - z * (pc.far_plane - pc.near_plane)));
+    }
+    if (pc.channels == 1) t = vec4(t.r, t.r, t.r, 1.0);
+    vec3 c = pc.channel == 0 ? t.rgb : pc.channel == 1 ? t.rrr : pc.channel == 2 ? t.ggg : pc.channel == 3 ? t.bbb : t.aaa;
+    c = clamp((c - pc.range_min) / max(pc.range_max - pc.range_min, 1e-6), 0.0, 1.0);
+    imageStore(u_images[pc.target], p, vec4(c, 1.0));
+}

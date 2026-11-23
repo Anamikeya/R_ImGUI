@@ -74,6 +74,8 @@ public:
 	// The latest build's errors, by file and line; empty when the current files built.
 	const std::string &error() const { return error_; }
 	int version() const { return version_; }
+	// Graphics pipelines: the culling bind() sets (culling is dynamic state: vkCmdSetCullMode changes it).
+	VkCullModeFlags cull() const { return graphics_.cull; }
 
 	// Binds the pipeline and the kit's descriptor set, and pushes `constants`.
 	void bind(VkCommandBuffer cb, const void *constants = nullptr, uint32_t size = 0) const;

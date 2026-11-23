@@ -135,7 +135,6 @@ struct GlBackend {
 	void begin_frame() {}
 	void end_frame() { timers->end_frame(); }
 	void retry() { reported_gl_errors.clear(); }
-	void timings_extra() {}
 
 	void begin_side(int side, int width, int height, const float clear[4])
 	{

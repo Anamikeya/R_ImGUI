@@ -14,6 +14,7 @@
 //   static TextureView view(Texture &)       for the Scene panel's map thumbnails
 //   shaders, timers, environment             members: poll(), reload_all(); stats(), total_gpu_ms(); load(), clear()...
 //   void begin_frame(); void end_frame()      around everything the lab draws in a frame
+//   void retry()                             a stopped technique is tried again
 //   void begin_side(side, w, h, clear)       the side's output and display sized, the output cleared
 //   void stopped_side(side)                  the output of a technique that stopped
 //   void prepare(Frame &, side)              the frame's backend fields: output, shaders, timers, command buffer...
@@ -1261,7 +1262,7 @@ int run_lab(State<B> &s, typename B::Owner *owner, std::vector<std::unique_ptr<t
 		ImGui::End();
 	};
 
-	const auto timings_panel = [&s] {
+	const auto timings_panel = [&s, &techniques] {
 		ImGui::Begin("Timings");
 		if (s.gpu.timers && ImGui::BeginTable("##timings", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
 			ImGui::TableSetupColumn("Pass", ImGuiTableColumnFlags_WidthStretch);
@@ -1294,7 +1295,17 @@ int run_lab(State<B> &s, typename B::Owner *owner, std::vector<std::unique_ptr<t
 			ImGui::TextDisabled("%.1f fps", double(s.fps));
 			ImGui::EndTable();
 		}
-		s.gpu.timings_extra();
+		// Counters the shown techniques keep, where the backend's techniques have them.
+		if constexpr (requires(Technique &t) { t.statistics(); }) {
+			for (int side = 0; side < (s.compare ? 2 : 1) && !techniques.empty(); ++side) {
+				if (side == 1 && s.technique[1] == s.technique[0]) {
+					break;
+				}
+				ImGui::PushID(side);
+				techniques[std::size_t(s.technique[side])]->statistics();
+				ImGui::PopID();
+			}
+		}
 		hint("GPU times come from timer queries a few frames late; hover a pass for its graph.");
 		ImGui::End();
 	};

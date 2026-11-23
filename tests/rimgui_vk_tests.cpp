@@ -2,10 +2,13 @@
 //   rimgui_vk_tests --vulkan --hidden --validation
 // Every check reads results back from the GPU. Any validation message is a failure too.
 #include <rimgui/app.h>
+#include <rimgui/rt/vk/environment.h>
 #include <rimgui/rt/vk/gpu.h>
 #include <rimgui/rt/vk/shader.h>
 #include <rimgui/rt/vk/timer.h>
 
+#include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -329,6 +332,98 @@ void main() {
 	check(near(pixels[(8 * 16 + 8) * 4 + 1], 1, 1e-3f), "the mesh shader's triangle covers the target");
 }
 
+// An equirectangular HDR image: one brightness everywhere, or that and one blinding pixel (a photographed sun).
+bool write_sky(const fs::path &path, float brightness, float sun)
+{
+	const int w = 64, h = 32;
+	std::vector<float> pixels(std::size_t(w * h * 3), brightness);
+	if (sun > 0) {
+		const std::size_t i = std::size_t((8 * w + 20) * 3);
+		pixels[i] = pixels[i + 1] = pixels[i + 2] = sun;
+	}
+	return rimgui::rt::write_hdr_bottom_up(path, w, h, pixels.data());
+}
+
+// One level of one layer of an image, as floats (RGBA32F, or RG16F widened to four channels with zeros).
+std::vector<float> read_level(Image &image, uint32_t mip, uint32_t layer)
+{
+	const uint32_t w = std::max(image.width() >> mip, 1u), h = std::max(image.height() >> mip, 1u);
+	const uint32_t size = format_size(image.format());
+	auto buffer = Buffer::create(VkDeviceSize(w) * h * size, 0, Memory::Readback, "level readback");
+	rimgui::vulkan::submit_now([&](VkCommandBuffer cb) {
+		barrier(cb);
+		VkBufferImageCopy copy{};
+		copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, mip, layer, 1};
+		copy.imageExtent = {w, h, 1};
+		vkCmdCopyImageToBuffer(cb, image.image(), VK_IMAGE_LAYOUT_GENERAL, buffer->buffer(), 1, &copy);
+	});
+	std::vector<float> out(std::size_t(w) * h * 4, 0.0f);
+	if (image.format() == VK_FORMAT_R32G32B32A32_SFLOAT) {
+		std::memcpy(out.data(), buffer->mapped(), out.size() * 4);
+	} else if (image.format() == VK_FORMAT_R16G16_SFLOAT) {
+		const auto *half = static_cast<const uint16_t *>(buffer->mapped());
+		for (std::size_t i = 0; i < std::size_t(w) * h; ++i) {
+			for (int c = 0; c < 2; ++c) {
+				const uint16_t v = half[i * 2 + std::size_t(c)];
+				const int exponent = (v >> 10) & 31, mantissa = v & 1023;
+				out[i * 4 + std::size_t(c)] = exponent == 0 ? std::ldexp(float(mantissa), -24) : std::ldexp(float(mantissa + 1024), exponent - 25);
+			}
+		}
+	}
+	return out;
+}
+
+std::array<float, 4> middle_texel(Image &cube, uint32_t mip, uint32_t face)
+{
+	const auto texels = read_level(cube, mip, face);
+	const uint32_t size = std::max(cube.width() >> mip, 1u);
+	const std::size_t m = (std::size_t(size / 2) * size + size / 2) * 4;
+	return {texels[m], texels[m + 1], texels[m + 2], texels[m + 3]};
+}
+
+// The image-based lighting maps, built by compute shaders, against what they must be (as the OpenGL kit's test).
+void test_environment(ShaderLibrary &shaders, const fs::path &folder)
+{
+	Environment env;
+	std::string error;
+	check(write_sky(folder / "grey.hdr", 0.5f, 0), "test sky written");
+	check(env.load(folder / "grey.hdr", shaders, &error), "an HDR sky loads (" + error + ")");
+	if (!env.loaded()) {
+		return;
+	}
+	bool irradiance_ok = true, prefiltered_ok = true;
+	for (uint32_t face = 0; face < 6; ++face) {
+		const auto i = middle_texel(*env.irradiance(), 0, face);
+		irradiance_ok = irradiance_ok && near(i[0], 0.5f, 0.02f) && near(i[2], 0.5f, 0.02f);
+		for (uint32_t level = 0; level < uint32_t(env.prefiltered_levels()); ++level) {
+			const auto p = middle_texel(*env.prefiltered(), level, face);
+			prefiltered_ok = prefiltered_ok && near(p[1], 0.5f, 0.02f);
+		}
+	}
+	check(irradiance_ok, "a constant sky's irradiance / pi equals its brightness on every face");
+	check(prefiltered_ok, "every prefiltered level of a constant sky equals its brightness");
+	Image &lut = *env.brdf_lut();
+	const auto table = read_level(lut, 0, 0);
+	const uint32_t w = lut.width(), h = lut.height();
+	const auto at = [&](uint32_t x, uint32_t y) { return std::array<float, 2>{table[(y * w + x) * 4], table[(y * w + x) * 4 + 1]}; };
+	const auto head_on = at(w - 1, 0);
+	check(near(head_on[0], 1, 0.03f) && near(head_on[1], 0, 0.03f), "BRDF table: smooth, head-on is F0 (scale 1, bias 0)");
+	const auto rough = at(w - 1, h - 1);
+	check(rough[0] + rough[1] < 0.95f && rough[0] + rough[1] > 0.3f, "BRDF table: rough surfaces lose energy to single scattering");
+
+	check(write_sky(folder / "sun.hdr", 0.5f, 2.0e6f), "test sun written");
+	check(env.load(folder / "sun.hdr", shaders, &error), "a sky with a blinding sun loads (" + error + ")");
+	bool finite = true;
+	for (uint32_t face = 0; face < 6; ++face) {
+		for (const float value : middle_texel(*env.irradiance(), 0, face)) finite = finite && std::isfinite(value);
+		for (uint32_t level = 0; level < uint32_t(env.prefiltered_levels()); ++level) {
+			for (const float value : middle_texel(*env.prefiltered(), level, face)) finite = finite && std::isfinite(value);
+		}
+	}
+	check(finite, "a blinding sun gives finite irradiance and reflections (no infinity, no NaN)");
+	check(!env.load(folder / "missing.hdr", shaders, &error) && env.loaded(), "a missing file is refused and the last environment stays");
+}
+
 } // namespace
 
 int main(int argc, char **argv)
@@ -373,6 +468,7 @@ int main(int argc, char **argv)
 			{"textures and mips", [&] { test_textures(*shaders, folder); }},
 			{"ray tracing pipeline", [&] { test_ray_tracing(*shaders, folder); }},
 			{"mesh shaders", [&] { test_mesh_shaders(*shaders, folder); }},
+			{"image-based lighting", [&] { test_environment(*shaders, folder); }},
 		};
 		for (const auto &[name, run] : tests) {
 			current = name;

@@ -3,6 +3,7 @@
 #                         research kit)
 #   templates/starter/    StarterApp, a tool with the editor's look
 #   templates/renderlab/  RenderLab, a renderer research application
+#   templates/renderlab-vulkan/  RenderLabVulkan, the same on Vulkan (built when the Vulkan SDK is installed)
 # Building here builds the libraries and both templates:
 #   cmake -B build
 #   cmake --build build --config Release
@@ -16,6 +17,9 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 add_subdirectory(rimgui)
 add_subdirectory(templates/starter)
 add_subdirectory(templates/renderlab)
+if(RIMGUI_HAS_VULKAN)
+	add_subdirectory(templates/renderlab-vulkan)
+endif()
 
 # Tests: ctest --test-dir build. They open OpenGL windows that are never shown.
 enable_testing()

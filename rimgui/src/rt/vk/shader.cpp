@@ -350,6 +350,9 @@ Pipeline::~Pipeline()
 void Pipeline::bind(VkCommandBuffer cb, const void *constants, uint32_t size) const
 {
 	vkCmdBindPipeline(cb, bind_point_, pipeline_);
+	if (kind_ == Kind::Graphics) {
+		vkCmdSetCullMode(cb, graphics_.cull);
+	}
 	Gpu::get()->bind(cb, bind_point_, constants, size);
 }
 
@@ -560,9 +563,11 @@ bool ShaderLibrary::build(Pipeline &p)
 			VkPipelineColorBlendStateCreateInfo blend{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
 			blend.attachmentCount = uint32_t(blends.size());
 			blend.pAttachments = blends.data();
-			const VkDynamicState dynamic_states[]{VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+			// Culling is dynamic so a scene can draw double-sided materials with the same pipeline (bind() sets the
+			// pipeline's own).
+			const VkDynamicState dynamic_states[]{VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR, VK_DYNAMIC_STATE_CULL_MODE};
 			VkPipelineDynamicStateCreateInfo dynamic{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
-			dynamic.dynamicStateCount = 2;
+			dynamic.dynamicStateCount = 3;
 			dynamic.pDynamicStates = dynamic_states;
 			VkPipelineRenderingCreateInfo rendering{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
 			rendering.colorAttachmentCount = uint32_t(d.colors.size());

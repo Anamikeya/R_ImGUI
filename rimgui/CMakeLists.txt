@@ -97,15 +97,22 @@ set(RIMGUI_KIT_SHADER_DIR "${CMAKE_CURRENT_LIST_DIR}/shaders" CACHE INTERNAL "")
 # include/rimgui/rt/vk/gpu.h. Shaders compile at run time: GLSL through shaderc, HLSL through DXC.
 if(RIMGUI_HAS_VULKAN)
 	add_library(rimgui_rt_vk STATIC
+		include/rimgui/rt/vk/environment.h
 		include/rimgui/rt/vk/gpu.h
+		include/rimgui/rt/vk/lab.h
+		include/rimgui/rt/vk/scene.h
 		include/rimgui/rt/vk/shader.h
 		include/rimgui/rt/vk/timer.h
+		src/rt/vk/environment.cpp
 		src/rt/vk/gpu.cpp
+		src/rt/vk/lab.cpp
+		src/rt/vk/scene.cpp
 		src/rt/vk/shader.cpp
 		src/rt/vk/timer.cpp
 	)
 	target_link_libraries(rimgui_rt_vk PUBLIC rimgui_rt_core rimgui)
 	target_include_directories(rimgui_rt_vk SYSTEM PRIVATE "${RIMGUI_VULKAN_SDK}/Include/vma" "${RIMGUI_VULKAN_SDK}/Include")
+	target_compile_definitions(rimgui_rt_vk PRIVATE RIMGUI_KIT_SHADERS="${CMAKE_CURRENT_LIST_DIR}/shaders")
 	target_link_libraries(rimgui_rt_vk PRIVATE
 		"$<IF:$<CONFIG:Debug>,${RIMGUI_VULKAN_SDK}/Lib/shaderc_combinedd.lib,${RIMGUI_VULKAN_SDK}/Lib/shaderc_combined.lib>")
 	if(WIN32)
