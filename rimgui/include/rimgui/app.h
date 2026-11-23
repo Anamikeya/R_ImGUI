@@ -29,8 +29,10 @@ struct AppConfig {
 	std::string title = "R_ImGUI Application";
 	int width = 1440, height = 900;  // At 100% scale; grown with the monitor's scale and kept within its work area.
 	std::string layout_file = "imgui.ini"; // Where docking and window positions are kept; empty keeps none.
-	// OpenGL or Vulkan; --opengl or --vulkan on the command line overrides it.
+	// OpenGL or Vulkan; --opengl or --vulkan on the command line overrides it, unless `fixed_backend` (a program
+	// that draws with one API itself, such as a RenderLab).
 	Backend backend = Backend::OpenGL;
+	bool fixed_backend = false;
 	// Vulkan: the validation layers on (also --validation). Their messages go to rimgui::vulkan::on_message.
 	bool vulkan_validation = false;
 	// The OpenGL context asked for; 3.3 core is used when the driver cannot give it.

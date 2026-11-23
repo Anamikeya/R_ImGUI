@@ -13,6 +13,7 @@
 #include <rimgui/rt/math.h>
 #include <rimgui/rt/mesh.h>
 #include <rimgui/rt/model_data.h>
+#include <rimgui/rt/scene_core.h>
 #include <rimgui/rt/shader.h>
 #include <rimgui/rt/texture.h>
 
@@ -51,22 +52,6 @@ struct Object {
 	// The file it came from, if any, so a saved lab can load it again.
 	std::string source;
 	mat4 model() const;
-};
-
-struct Sun {
-	float azimuth_degrees = 35, elevation_degrees = 45;
-	vec3 color{1, 0.96f, 0.9f};
-	float intensity = 3;
-	vec3 sky{0.25f, 0.45f, 0.85f}, horizon{0.62f, 0.68f, 0.78f}, ground{0.22f, 0.19f, 0.16f};
-	float ambient = 0.25f; // How strongly the sky (or the environment map) lights what the sun does not.
-	vec3 direction() const; // Towards the sun, unit length.
-};
-
-// Which objects a draw call takes.
-enum class DrawFilter {
-	All,         // Opaque and masked first, then blended ones back to front with alpha blending on.
-	Opaque,      // Opaque and masked only: for G-buffers, depth and shadow passes.
-	Transparent, // Blended only, back to front, blending left to the caller.
 };
 
 struct Scene {

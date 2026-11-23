@@ -28,4 +28,9 @@ struct FloatImage {
 };
 FloatImage read_float_image(const std::filesystem::path &path, std::string *error = nullptr);
 
+// Writes 8-bit RGBA pixels as a PNG, or RGB floats as a Radiance .hdr file. Rows are given bottom first (as both kits
+// read pictures back) and written top first. False when the file cannot be written.
+bool write_png_bottom_up(const std::filesystem::path &path, int width, int height, const unsigned char *rgba);
+bool write_hdr_bottom_up(const std::filesystem::path &path, int width, int height, const float *rgb);
+
 } // namespace rimgui::rt

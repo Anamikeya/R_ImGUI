@@ -168,8 +168,8 @@ int run(const AppConfig &config, const std::function<void()> &frame, int argc, c
 	for (int i = 1; i < argc; ++i) {
 		const std::string_view arg = argv[i];
 		if (arg == "--hidden") hidden = true;
-		else if (arg == "--vulkan") chosen = Backend::Vulkan;
-		else if (arg == "--opengl") chosen = Backend::OpenGL;
+		else if (arg == "--vulkan" && !config.fixed_backend) chosen = Backend::Vulkan;
+		else if (arg == "--opengl" && !config.fixed_backend) chosen = Backend::OpenGL;
 		else if (arg == "--validation") validation = true;
 		else if (arg == "--screenshot" && i + 1 < argc) screenshot = argv[++i];
 		else if (arg == "--screenshot-frame" && i + 1 < argc) screenshot_frame = std::max(1, std::atoi(argv[++i]));

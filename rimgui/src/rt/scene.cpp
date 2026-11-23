@@ -8,26 +8,12 @@ namespace rimgui::rt {
 
 int Material::maps() const
 {
-	int m = 0;
-	if (albedo_map) m |= map_albedo;
-	if (normal_map) m |= map_normal;
-	if (metal_rough_map) m |= map_metal_rough;
-	if (occlusion_map) m |= map_occlusion;
-	if (emissive_map) m |= map_emissive;
-	return m & maps_enabled;
+	return scene_core::maps(*this);
 }
 
 mat4 Object::model() const
 {
-	const float d = pi / 180;
-	return translate(position) * rotate(rotation_degrees.y * d, {0, 1, 0}) * rotate(rotation_degrees.x * d, {1, 0, 0}) *
-		   rotate(rotation_degrees.z * d, {0, 0, 1}) * rt::scale(scale) * base;
-}
-
-vec3 Sun::direction() const
-{
-	const float a = azimuth_degrees * pi / 180, e = elevation_degrees * pi / 180;
-	return normalize({std::cos(e) * std::sin(a), std::sin(e), std::cos(e) * std::cos(a)});
+	return object_transform(position, rotation_degrees, scale, base);
 }
 
 namespace {
@@ -114,28 +100,7 @@ void Scene::draw(Program &program, DrawFilter filter, vec3 camera_position) cons
 
 void Scene::bounds(vec3 &centre, float &radius) const
 {
-	vec3 lo{1e9f, 1e9f, 1e9f}, hi{-1e9f, -1e9f, -1e9f};
-	bool any = false;
-	for (const auto &o : objects) {
-		if (!o.visible || !o.mesh) {
-			continue;
-		}
-		const mat4 m = o.model();
-		const vec3 a = o.mesh->bounds_min(), b = o.mesh->bounds_max();
-		for (int i = 0; i < 8; ++i) {
-			const vec4 p = m * vec4{(i & 1) ? b.x : a.x, (i & 2) ? b.y : a.y, (i & 4) ? b.z : a.z, 1};
-			lo = {std::min(lo.x, p.x), std::min(lo.y, p.y), std::min(lo.z, p.z)};
-			hi = {std::max(hi.x, p.x), std::max(hi.y, p.y), std::max(hi.z, p.z)};
-			any = true;
-		}
-	}
-	if (!any) {
-		centre = {0, 0, 0};
-		radius = 1;
-		return;
-	}
-	centre = (lo + hi) * 0.5f;
-	radius = std::max(length(hi - lo) * 0.5f, 0.1f);
+	scene_core::bounds(objects, centre, radius);
 }
 
 void Scene::set_lighting(Program &program) const
@@ -150,42 +115,7 @@ void Scene::set_lighting(Program &program) const
 
 std::size_t Scene::fingerprint() const
 {
-	std::size_t h = 1469598103934665603ull;
-	const auto mix = [&h](const void *data, std::size_t n) {
-		const auto *p = static_cast<const unsigned char *>(data);
-		for (std::size_t i = 0; i < n; ++i) {
-			h = (h ^ p[i]) * 1099511628211ull;
-		}
-	};
-	const auto f = [&](float v) { mix(&v, sizeof v); };
-	const auto v3 = [&](vec3 v) { f(v.x); f(v.y); f(v.z); };
-	for (const auto &o : objects) {
-		const std::uintptr_t mesh = reinterpret_cast<std::uintptr_t>(o.mesh.get());
-		mix(&mesh, sizeof mesh);
-		v3(o.position);
-		v3(o.rotation_degrees);
-		v3(o.scale);
-		const Material &m = o.material;
-		v3(m.albedo);
-		f(m.alpha);
-		f(m.roughness);
-		f(m.metallic);
-		v3(m.emissive);
-		f(m.normal_scale);
-		f(m.occlusion_strength);
-		f(m.alpha_cutoff);
-		const int ints[]{int(m.alpha_mode), m.maps(), m.double_sided ? 1 : 0, o.visible ? 1 : 0};
-		mix(ints, sizeof ints);
-	}
-	f(sun.azimuth_degrees);
-	f(sun.elevation_degrees);
-	v3(sun.color);
-	f(sun.intensity);
-	v3(sun.sky);
-	v3(sun.horizon);
-	v3(sun.ground);
-	f(sun.ambient);
-	return h;
+	return scene_core::fingerprint(objects, sun);
 }
 
 } // namespace rimgui::rt

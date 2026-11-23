@@ -38,11 +38,15 @@ add_library(rimgui_rt_core STATIC
 	include/rimgui/rt/math.h
 	include/rimgui/rt/mesh_data.h
 	include/rimgui/rt/model_data.h
+	include/rimgui/rt/scene_core.h
 	include/rimgui/rt/settings.h
 	src/rt/camera.cpp
 	src/rt/image.cpp
+	src/rt/image_write.cpp
+	src/rt/lab_core.inl
 	src/rt/mesh_data.cpp
 	src/rt/model_data.cpp
+	src/rt/scene_core.cpp
 	src/rt/settings.cpp
 )
 target_link_libraries(rimgui_rt_core PUBLIC rimgui)
@@ -79,8 +83,6 @@ add_library(rimgui_rt STATIC
 	src/rt/timer.cpp
 )
 target_link_libraries(rimgui_rt PUBLIC rimgui_rt_core rimgui_glfw_deps)
-# stb_image_write, kept in this repository (third_party/README.md).
-target_include_directories(rimgui_rt SYSTEM PRIVATE "${CMAKE_CURRENT_LIST_DIR}/third_party/stb")
 # The kit's own shaders (tonemapping, the texture inspector, the sky), read from here while developing.
 target_compile_definitions(rimgui_rt PRIVATE RIMGUI_KIT_SHADERS="${CMAKE_CURRENT_LIST_DIR}/shaders")
 if(MSVC)
