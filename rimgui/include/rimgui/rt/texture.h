@@ -3,6 +3,7 @@
 // Colour images (albedo, emissive) are read as sRGB, so shaders see linear values; data images (normals, roughness)
 // are read as they are.
 #include <rimgui/rt/gl.h>
+#include <rimgui/rt/image.h>
 
 #include <filesystem>
 #include <memory>
@@ -27,6 +28,8 @@ public:
 	// 8-bit pixels, `channels` 1 to 4 a pixel, rows top to bottom.
 	static std::shared_ptr<Texture> from_pixels(int width, int height, int channels, const unsigned char *pixels, bool srgb,
 		std::string name = {});
+	// A decoded image (rimgui/rt/image.h); `srgb` for colour images that are not HDR.
+	static std::shared_ptr<Texture> from_image(const Image &image, bool srgb);
 	// 32-bit float pixels, 3 or 4 channels a pixel, rows top to bottom.
 	static std::shared_ptr<Texture> from_floats(int width, int height, int channels, const float *pixels, std::string name = {});
 
@@ -43,12 +46,5 @@ std::shared_ptr<Texture> load_texture(const std::filesystem::path &path, bool sr
 // An encoded image in memory (as glTF binaries hold them).
 std::shared_ptr<Texture> load_texture_from_memory(const unsigned char *data, std::size_t size, bool srgb, std::string name,
 	std::string *error = nullptr);
-
-// Decoded Radiance HDR (or any image as floats), for code that works on pixels: rows top to bottom, RGB.
-struct FloatImage {
-	int width = 0, height = 0;
-	std::unique_ptr<float[]> pixels;
-};
-FloatImage read_float_image(const std::filesystem::path &path, std::string *error = nullptr);
 
 } // namespace rimgui::rt

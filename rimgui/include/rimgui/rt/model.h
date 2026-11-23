@@ -1,6 +1,7 @@
 #pragma once
-// Models from files, as scene objects: glTF 2.0 (.gltf with its files, or .glb) with metal-roughness materials and
-// their textures, and Wavefront OBJ (.obj, geometry only).
+// Models from files on the GPU (OpenGL), as scene objects: read_model's data (rimgui/rt/model_data.h) uploaded, each
+// mesh and image once.
+#include <rimgui/rt/model_data.h>
 #include <rimgui/rt/scene.h>
 
 #include <filesystem>
@@ -19,7 +20,6 @@ struct Model {
 // Empty parts and `error` set when the file cannot be read.
 Model load_model(const std::filesystem::path &path, std::string *error = nullptr);
 
-// The file types load_model reads, by extension (".gltf", ".glb", ".obj").
-bool is_model_file(const std::filesystem::path &path);
+
 
 } // namespace rimgui::rt

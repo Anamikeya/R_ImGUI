@@ -1,15 +1,5 @@
 #include <rimgui/rt/texture.h>
 
-#ifdef _MSC_VER
-#pragma warning(push, 0)
-#endif
-#define STB_IMAGE_IMPLEMENTATION
-#define STBI_FAILURE_USERMSG
-#include <stb_image.h>
-#ifdef _MSC_VER
-#pragma warning(pop)
-#endif
-
 #include <algorithm>
 #include <fstream>
 #include <map>
@@ -131,42 +121,22 @@ std::shared_ptr<Texture> Texture::from_floats(int width, int height, int channel
 	return t;
 }
 
+std::shared_ptr<Texture> Texture::from_image(const Image &image, bool srgb)
+{
+	if (image.hdr) {
+		return from_floats(image.width, image.height, image.channels, image.floats.data(), image.name);
+	}
+	return from_pixels(image.width, image.height, image.channels, image.bytes.data(), srgb, image.name);
+}
+
 std::shared_ptr<Texture> load_texture_from_memory(const unsigned char *data, std::size_t size, bool srgb, std::string name, std::string *error)
 {
-	if (!data || size == 0 || size > std::size_t(INT32_MAX)) {
-		if (error) *error = name + ": no image data";
+	const auto image = decode_image_from_memory(data, size, std::move(name), error);
+	if (!image) {
 		return nullptr;
 	}
-	stbi_set_flip_vertically_on_load(0);
-	int w = 0, h = 0, n = 0;
-	if (stbi_is_hdr_from_memory(data, int(size))) {
-		float *pixels = stbi_loadf_from_memory(data, int(size), &w, &h, &n, 0);
-		if (!pixels) {
-			if (error) *error = name + ": " + stbi_failure_reason();
-			return nullptr;
-		}
-		const int channels = n >= 4 ? 4 : 3;
-		std::vector<float> expanded;
-		const float *source = pixels;
-		if (n < 3) { // Grey HDR: repeated into RGB.
-			expanded.resize(std::size_t(w) * std::size_t(h) * 3);
-			for (std::size_t i = 0; i < std::size_t(w) * std::size_t(h); ++i) {
-				expanded[i * 3] = expanded[i * 3 + 1] = expanded[i * 3 + 2] = pixels[i * std::size_t(n)];
-			}
-			source = expanded.data();
-		}
-		auto t = Texture::from_floats(w, h, n < 3 ? 3 : channels, source, name);
-		stbi_image_free(pixels);
-		return t;
-	}
-	unsigned char *pixels = stbi_load_from_memory(data, int(size), &w, &h, &n, 0);
-	if (!pixels) {
-		if (error) *error = name + ": " + stbi_failure_reason();
-		return nullptr;
-	}
-	auto t = Texture::from_pixels(w, h, n, pixels, srgb, name);
-	stbi_image_free(pixels);
-	if (!t && error) *error = name + ": unusable image";
+	auto t = Texture::from_image(*image, srgb);
+	if (!t && error) *error = image->name + ": unusable image";
 	return t;
 }
 
@@ -187,28 +157,6 @@ std::shared_ptr<Texture> load_texture(const fs::path &path, bool srgb, std::stri
 		cache()[key] = t;
 	}
 	return t;
-}
-
-FloatImage read_float_image(const fs::path &path, std::string *error)
-{
-	FloatImage image;
-	const auto bytes = read_file(path);
-	if (bytes.empty() || bytes.size() > std::size_t(INT32_MAX)) {
-		if (error) *error = path.string() + ": cannot be read";
-		return image;
-	}
-	int n = 0;
-	float *pixels = stbi_loadf_from_memory(bytes.data(), int(bytes.size()), &image.width, &image.height, &n, 3);
-	if (!pixels) {
-		if (error) *error = path.string() + ": " + stbi_failure_reason();
-		image.width = image.height = 0;
-		return image;
-	}
-	const std::size_t count = std::size_t(image.width) * std::size_t(image.height) * 3;
-	image.pixels = std::make_unique<float[]>(count);
-	std::copy(pixels, pixels + count, image.pixels.get());
-	stbi_image_free(pixels);
-	return image;
 }
 
 } // namespace rimgui::rt

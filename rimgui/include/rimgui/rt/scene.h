@@ -12,6 +12,7 @@
 //   u_occlusion_map, u_emissive_map
 #include <rimgui/rt/math.h>
 #include <rimgui/rt/mesh.h>
+#include <rimgui/rt/model_data.h>
 #include <rimgui/rt/shader.h>
 #include <rimgui/rt/texture.h>
 
@@ -20,16 +21,6 @@
 #include <vector>
 
 namespace rimgui::rt {
-
-enum MaterialMaps : int {
-	map_albedo = 1,
-	map_normal = 2,
-	map_metal_rough = 4, // Roughness in green, metallic in blue, as glTF packs them.
-	map_occlusion = 8,   // In red.
-	map_emissive = 16,
-};
-
-enum class AlphaMode : int { Opaque = 0, Mask = 1, Blend = 2 };
 
 // The first texture unit materials use; units below it are free for techniques.
 inline constexpr int material_texture_unit = 7;

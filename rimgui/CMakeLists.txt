@@ -30,37 +30,57 @@ else()
 	target_compile_options(rimgui PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
-# rimgui_rt: the realtime rendering research kit (OpenGL 3.3 to 4.6). See include/rimgui/rt/lab.h.
-add_library(rimgui_rt STATIC
+# rimgui_rt_core: what both research kits share, with no graphics API: math, the camera, settings, images, meshes and
+# model files read into CPU data.
+add_library(rimgui_rt_core STATIC
 	include/rimgui/rt/camera.h
+	include/rimgui/rt/image.h
+	include/rimgui/rt/math.h
+	include/rimgui/rt/mesh_data.h
+	include/rimgui/rt/model_data.h
+	include/rimgui/rt/settings.h
+	src/rt/camera.cpp
+	src/rt/image.cpp
+	src/rt/mesh_data.cpp
+	src/rt/model_data.cpp
+	src/rt/settings.cpp
+)
+target_link_libraries(rimgui_rt_core PUBLIC rimgui)
+# stb_image and cgltf, kept in this repository (third_party/README.md).
+target_include_directories(rimgui_rt_core SYSTEM PRIVATE "${CMAKE_CURRENT_LIST_DIR}/third_party/stb" "${CMAKE_CURRENT_LIST_DIR}/third_party/cgltf")
+if(MSVC)
+	target_compile_options(rimgui_rt_core PRIVATE /W4 /permissive- /utf-8)
+	target_compile_definitions(rimgui_rt_core PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS)
+else()
+	target_compile_options(rimgui_rt_core PRIVATE -Wall -Wextra)
+endif()
+
+# rimgui_rt: the realtime rendering research kit on OpenGL 3.3 to 4.6. See include/rimgui/rt/lab.h.
+add_library(rimgui_rt STATIC
 	include/rimgui/rt/environment.h
 	include/rimgui/rt/gl.h
 	include/rimgui/rt/lab.h
-	include/rimgui/rt/math.h
 	include/rimgui/rt/mesh.h
 	include/rimgui/rt/model.h
 	include/rimgui/rt/scene.h
-	include/rimgui/rt/settings.h
 	include/rimgui/rt/shader.h
 	include/rimgui/rt/target.h
 	include/rimgui/rt/texture.h
 	include/rimgui/rt/timer.h
-	src/rt/camera.cpp
 	src/rt/environment.cpp
 	src/rt/gl.cpp
 	src/rt/lab.cpp
 	src/rt/mesh.cpp
 	src/rt/model.cpp
 	src/rt/scene.cpp
-	src/rt/settings.cpp
 	src/rt/shader.cpp
 	src/rt/target.cpp
 	src/rt/texture.cpp
 	src/rt/timer.cpp
 )
-target_link_libraries(rimgui_rt PUBLIC rimgui rimgui_glfw_deps)
-# stb_image, stb_image_write and cgltf, kept in this repository (third_party/README.md).
-target_include_directories(rimgui_rt SYSTEM PRIVATE "${CMAKE_CURRENT_LIST_DIR}/third_party/stb" "${CMAKE_CURRENT_LIST_DIR}/third_party/cgltf")
+target_link_libraries(rimgui_rt PUBLIC rimgui_rt_core rimgui_glfw_deps)
+# stb_image_write, kept in this repository (third_party/README.md).
+target_include_directories(rimgui_rt SYSTEM PRIVATE "${CMAKE_CURRENT_LIST_DIR}/third_party/stb")
 # The kit's own shaders (tonemapping, the texture inspector, the sky), read from here while developing.
 target_compile_definitions(rimgui_rt PRIVATE RIMGUI_KIT_SHADERS="${CMAKE_CURRENT_LIST_DIR}/shaders")
 if(MSVC)
