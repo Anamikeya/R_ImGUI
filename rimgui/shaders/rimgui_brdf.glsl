@@ -1,4 +1,7 @@
-// Microfacet BRDF pieces, for including: #include "brdf.glsl"
+// Microfacet BRDF pieces, for including: #include "rimgui_brdf.glsl"
+// Copy this into your own shaders folder under another name to try other models; the lab finds yours first.
+#ifndef RIMGUI_BRDF_GLSL
+#define RIMGUI_BRDF_GLSL
 const float PI = 3.14159265359;
 
 // Trowbridge-Reitz / GGX normal distribution (Walter et al. 2007). `a` is roughness squared.
@@ -44,3 +47,4 @@ void brdf(vec3 n, vec3 v, vec3 l, vec3 albedo, float roughness, float metallic, 
     specular = D_GGX(NoH, a) * V_SmithGGXCorrelated(NoV, NoL, a) * F * NoL;
     diffuse = (1.0 - F) * (1.0 - metallic) * albedo / PI * NoL;
 }
+#endif

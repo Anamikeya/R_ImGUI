@@ -27,6 +27,8 @@ namespace rimgui {
 namespace {
 
 bool quit_requested = false;
+int requested_exit_code = 0;
+const AppConfig *running_config = nullptr;
 bool layout_reset = false;
 
 void dock_space(const AppConfig &config)
@@ -76,9 +78,10 @@ bool save_ppm(const std::string &path, int width, int height)
 
 } // namespace
 
-void quit()
+void quit(int exit_code)
 {
 	quit_requested = true;
+	requested_exit_code = exit_code;
 }
 
 void reset_layout()
@@ -90,7 +93,11 @@ int run(const AppConfig &config, const std::function<void()> &frame, int argc, c
 {
 	std::string screenshot;
 	int screenshot_frame = 60;
+	bool hidden = false;
 	for (int i = 1; i < argc; ++i) {
+		if (std::string_view(argv[i]) == "--hidden") {
+			hidden = true;
+		}
 		if (std::string_view(argv[i]) == "--screenshot" && i + 1 < argc) {
 			screenshot = argv[++i];
 		} else if (std::string_view(argv[i]) == "--screenshot-frame" && i + 1 < argc) {
@@ -112,7 +119,7 @@ int run(const AppConfig &config, const std::function<void()> &frame, int argc, c
 	context(config.gl_major, config.gl_minor);
 	glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
 	// A screenshot run does not take the keyboard from whatever has it.
-	glfwWindowHint(GLFW_FOCUS_ON_SHOW, screenshot.empty() ? GLFW_TRUE : GLFW_FALSE);
+	glfwWindowHint(GLFW_FOCUS_ON_SHOW, screenshot.empty() && !hidden ? GLFW_TRUE : GLFW_FALSE);
 
 	// The size asked for at the monitor's scale, kept within its work area, centred on it.
 	GLFWmonitor *monitor = glfwGetPrimaryMonitor();
@@ -138,8 +145,16 @@ int run(const AppConfig &config, const std::function<void()> &frame, int argc, c
 		glfwSetWindowPos(window, area_x + std::max(area_width - width, 0) / 2, area_y + std::max(area_height - height, 0) / 2);
 	}
 	glfwMakeContextCurrent(window);
-	glfwSwapInterval(1);
-	glfwShowWindow(window);
+	glfwSwapInterval(hidden ? 0 : 1);
+	if (!hidden) {
+		glfwShowWindow(window);
+	}
+	running_config = &config;
+	glfwSetDropCallback(window, [](GLFWwindow *, int count, const char **paths) {
+		if (running_config && running_config->on_drop) {
+			running_config->on_drop(std::vector<std::string>(paths, paths + count));
+		}
+	});
 
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
@@ -147,7 +162,7 @@ int run(const AppConfig &config, const std::function<void()> &frame, int argc, c
 	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable | ImGuiConfigFlags_NavEnableKeyboard;
 	io.ConfigWindowsMoveFromTitleBarOnly = true;
 	io.ConfigDragClickToInputText = true; // Number fields: drag to scrub, click to type.
-	io.IniFilename = config.layout_file.empty() || !screenshot.empty() ? nullptr : config.layout_file.c_str();
+	io.IniFilename = config.layout_file.empty() || !screenshot.empty() || hidden ? nullptr : config.layout_file.c_str();
 
 	apply_theme(ImGui::GetStyle());
 	// The font atlas is built once, for the scale the window opens at; another monitor scales it.
@@ -162,6 +177,7 @@ int run(const AppConfig &config, const std::function<void()> &frame, int argc, c
 		config.on_start();
 	}
 	quit_requested = false;
+	requested_exit_code = 0;
 	int frames = 0;
 	int exit_code = 0;
 	while (!glfwWindowShouldClose(window) && !quit_requested) {
@@ -204,9 +220,10 @@ int run(const AppConfig &config, const std::function<void()> &frame, int argc, c
 	ImGui_ImplOpenGL3_Shutdown();
 	ImGui_ImplGlfw_Shutdown();
 	ImGui::DestroyContext();
+	running_config = nullptr;
 	glfwDestroyWindow(window);
 	glfwTerminate();
-	return exit_code;
+	return exit_code != 0 ? exit_code : requested_exit_code;
 }
 
 } // namespace rimgui

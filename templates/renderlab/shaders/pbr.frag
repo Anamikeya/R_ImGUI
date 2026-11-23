@@ -1,15 +1,15 @@
 #version 330 core
-#include "lighting.glsl"
-#include "brdf.glsl"
+#include "rimgui_material.glsl"
+#include "rimgui_lighting.glsl"
+// Forward PBR: the sun through a shadow map, and image-based lighting from the environment (or the gradient sky).
 
 in vec3 v_world;
 in vec3 v_normal;
+in vec2 v_uv;
 out vec4 o_color;
 
 uniform vec3 u_camera_position;
-uniform vec3 u_albedo, u_emissive;
-uniform float u_roughness, u_metallic;
-uniform int u_view_mode; // 0 final, 1 diffuse, 2 specular, 3 shadow, 4 normals
+uniform int u_view_mode; // 0 final, 1 diffuse, 2 specular, 3 shadow, 4 normals, 5 ambient only
 
 uniform int u_use_shadows;
 uniform sampler2D u_shadow_map;
@@ -39,26 +39,21 @@ float shadow(vec3 world, vec3 n)
 
 void main()
 {
-    vec3 n = normalize(v_normal);
+    Surface s = surface(v_world, v_normal, v_uv);
+    vec3 n = s.normal;
     vec3 v = normalize(u_camera_position - v_world);
     vec3 diffuse, specular;
-    brdf(n, v, u_sun_direction, u_albedo, u_roughness, u_metallic, diffuse, specular);
-    float s = shadow(v_world, n);
+    brdf(n, v, u_sun_direction, s.albedo, s.roughness, s.metallic, diffuse, specular);
+    float sh = shadow(v_world, normalize(v_normal));
+    vec3 direct_diffuse = diffuse * u_sun_color * sh, direct_specular = specular * u_sun_color * sh;
+    vec3 ambient = ambient_light(n, v, s.albedo, s.roughness, s.metallic, s.occlusion);
 
-    // Ambient: the sky round the normal for diffuse, round the reflection for specular, blurred by roughness.
-    float NoV = clamp(dot(n, v), 0.0, 1.0);
-    vec3 f0 = mix(vec3(0.04), u_albedo, u_metallic);
-    vec3 F = F_SchlickRoughness(NoV, f0, u_roughness);
-    vec3 r = reflect(-v, n);
-    vec3 ambient_diffuse = (1.0 - F) * (1.0 - u_metallic) * u_albedo * sky_light(n) * u_ambient;
-    vec3 ambient_specular = F * mix(sky_light(r), sky_light(n), u_roughness) * u_ambient;
-
-    vec3 direct_diffuse = diffuse * u_sun_color * s, direct_specular = specular * u_sun_color * s;
     vec3 colour;
-    if (u_view_mode == 1) colour = direct_diffuse + ambient_diffuse;
-    else if (u_view_mode == 2) colour = direct_specular + ambient_specular;
-    else if (u_view_mode == 3) colour = vec3(s);
+    if (u_view_mode == 1) colour = direct_diffuse;
+    else if (u_view_mode == 2) colour = direct_specular;
+    else if (u_view_mode == 3) colour = vec3(sh);
     else if (u_view_mode == 4) colour = n * 0.5 + 0.5;
-    else colour = direct_diffuse + direct_specular + ambient_diffuse + ambient_specular + u_emissive;
-    o_color = vec4(colour, 1.0);
+    else if (u_view_mode == 5) colour = ambient;
+    else colour = direct_diffuse + direct_specular + ambient + s.emissive;
+    o_color = vec4(colour, u_alpha_mode == 2 ? s.alpha : 1.0);
 }

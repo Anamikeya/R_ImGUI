@@ -133,6 +133,7 @@ MeshData load_obj(const std::filesystem::path &path, std::string *error)
 		} else if (tag == "vt") {
 			vec2 t;
 			s >> t.x >> t.y;
+			t.y = 1 - t.y; // OBJ counts v from the bottom of the image; textures here start at the top.
 			uvs.push_back(t);
 		} else if (tag == "f") {
 			std::vector<unsigned> polygon;

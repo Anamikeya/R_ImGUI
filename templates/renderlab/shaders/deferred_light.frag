@@ -1,7 +1,7 @@
 #version 330 core
-#include "lighting.glsl"
-#include "brdf.glsl"
-// The deferred lighting pass: one full-screen triangle that lights every pixel from the G-buffer.
+#include "rimgui_lighting.glsl"
+// The deferred lighting pass: one full-screen triangle that lights every pixel from the G-buffer, with the sun and
+// image-based lighting, ambient occlusion from both the material and SSAO.
 in vec2 v_uv;
 out vec4 o_color;
 
@@ -24,16 +24,13 @@ void main()
     }
     vec4 world4 = u_inverse_view_projection * vec4(v_uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
     vec3 world = world4.xyz / world4.w;
-    vec4 ar = texture(u_albedo, v_uv), nm = texture(u_normal, v_uv);
+    vec4 ar = texture(u_albedo, v_uv), nm = texture(u_normal, v_uv), eo = texture(u_emissive, v_uv);
     vec3 albedo = ar.rgb;
     float roughness = ar.a, metallic = nm.a;
     vec3 n = normalize(transpose(mat3(u_view)) * nm.xyz); // View space back to world (the view is a rotation).
     vec3 v = normalize(u_camera_position - world);
     vec3 diffuse, specular;
     brdf(n, v, u_sun_direction, albedo, roughness, metallic, diffuse, specular);
-    float NoV = clamp(dot(n, v), 0.0, 1.0);
-    vec3 f0 = mix(vec3(0.04), albedo, metallic);
-    vec3 F = F_SchlickRoughness(NoV, f0, roughness);
-    vec3 ambient = ((1.0 - F) * (1.0 - metallic) * albedo * sky_light(n) + F * mix(sky_light(reflect(-v, n)), sky_light(n), roughness)) * u_ambient * ao;
-    o_color = vec4((diffuse + specular) * u_sun_color + ambient + texture(u_emissive, v_uv).rgb, 1.0);
+    vec3 ambient = ambient_light(n, v, albedo, roughness, metallic, ao * eo.a);
+    o_color = vec4((diffuse + specular) * u_sun_color + ambient + eo.rgb, 1.0);
 }

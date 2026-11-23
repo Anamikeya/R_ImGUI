@@ -1,5 +1,5 @@
 #version 330 core
-// Linear HDR to the display: exposure, a tone curve, then sRGB's gamma.
+// Linear HDR to the display: exposure, a tone curve, then sRGB's gamma. NaN and infinite pixels show magenta.
 in vec2 v_uv;
 out vec4 o_color;
 uniform sampler2D u_hdr;
@@ -18,7 +18,13 @@ vec3 to_srgb(vec3 c)
 
 void main()
 {
-    vec3 c = max(texture(u_hdr, v_uv).rgb * u_exposure, vec3(0.0));
+    vec3 raw = texture(u_hdr, v_uv).rgb;
+    // NaN and infinity are bugs in a technique: shown magenta, never hidden as black.
+    if (any(isnan(raw)) || any(isinf(raw))) {
+        o_color = vec4(1.0, 0.0, 1.0, 1.0);
+        return;
+    }
+    vec3 c = max(raw * u_exposure, vec3(0.0));
     if (u_mode == 0) c = aces(c);
     else if (u_mode == 1) c = c / (1.0 + c);
     else c = clamp(c, 0.0, 1.0);

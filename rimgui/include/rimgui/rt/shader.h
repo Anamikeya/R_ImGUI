@@ -70,8 +70,9 @@ public:
 	// A compute program (OpenGL 4.3).
 	Program &compute(const std::string &name, const std::string &compute_file);
 
-	// Checks the files' times (a few times a second at most) and rebuilds what changed. True when anything rebuilt.
-	bool poll();
+	// Checks the files' times (four times a second at most, unless `now` is true) and rebuilds what changed. True when
+	// anything rebuilt.
+	bool poll(bool now = false);
 	// Rebuilds every program now.
 	void reload_all();
 	// Where messages go: a rebuild that worked, or one that failed with its errors.

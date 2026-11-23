@@ -1,6 +1,6 @@
 #include <rimgui/rt/shader.h>
 
-#include <imgui.h>
+#include <chrono>
 
 #include <fstream>
 #include <regex>
@@ -266,10 +266,10 @@ bool ShaderLibrary::build(Program &program)
 	return true;
 }
 
-bool ShaderLibrary::poll()
+bool ShaderLibrary::poll(bool immediately)
 {
-	const double now = ImGui::GetTime();
-	if (now - last_poll_ < 0.25) {
+	const double now = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+	if (!immediately && now - last_poll_ < 0.25) {
 		return false;
 	}
 	last_poll_ = now;

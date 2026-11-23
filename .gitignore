@@ -6,3 +6,7 @@
 /CMakeUserPresets.json
 imgui.ini
 *.ppm
+# RenderLab state and captures, beside the program.
+*.settings
+*.settings.tmp
+captures/

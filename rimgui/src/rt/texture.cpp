@@ -1,0 +1,214 @@
+#include <rimgui/rt/texture.h>
+
+#ifdef _MSC_VER
+#pragma warning(push, 0)
+#endif
+#define STB_IMAGE_IMPLEMENTATION
+#define STBI_FAILURE_USERMSG
+#include <stb_image.h>
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
+
+#include <algorithm>
+#include <fstream>
+#include <map>
+#include <vector>
+
+#define GLFW_INCLUDE_NONE
+#include <GLFW/glfw3.h>
+
+#ifndef GL_TEXTURE_MAX_ANISOTROPY
+#define GL_TEXTURE_MAX_ANISOTROPY 0x84FE
+#endif
+#ifndef GL_MAX_TEXTURE_MAX_ANISOTROPY
+#define GL_MAX_TEXTURE_MAX_ANISOTROPY 0x84FF
+#endif
+
+namespace rimgui::rt {
+
+namespace fs = std::filesystem;
+
+Texture::~Texture()
+{
+	if (id_) {
+		glDeleteTextures(1, &id_);
+	}
+}
+
+namespace {
+
+// Anisotropic filtering: core in OpenGL 4.6, and before it an extension (the core name is listed too on 4.6 drivers).
+bool glfw_has_anisotropy()
+{
+	return glfwExtensionSupported("GL_EXT_texture_filter_anisotropic") || glfwExtensionSupported("GL_ARB_texture_filter_anisotropic");
+}
+
+void sampling(bool mipmaps)
+{
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, mipmaps ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+	// Anisotropic filtering, up to 8x where the driver has it.
+	static const GLfloat most = [] {
+		GLfloat value = 0;
+		if (glfw_has_anisotropy()) {
+			glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY, &value);
+		}
+		return value;
+	}();
+	if (most > 1) {
+		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY, std::min(most, 8.0f));
+	}
+}
+
+std::vector<unsigned char> read_file(const fs::path &path)
+{
+	std::ifstream in(path, std::ios::binary);
+	return in ? std::vector<unsigned char>(std::istreambuf_iterator<char>(in), {}) : std::vector<unsigned char>{};
+}
+
+std::map<std::string, std::weak_ptr<Texture>> &cache()
+{
+	static std::map<std::string, std::weak_ptr<Texture>> c;
+	return c;
+}
+
+} // namespace
+
+std::shared_ptr<Texture> Texture::from_pixels(int width, int height, int channels, const unsigned char *pixels, bool srgb, std::string name)
+{
+	if (width <= 0 || height <= 0 || channels < 1 || channels > 4 || !pixels) {
+		return nullptr;
+	}
+	auto t = std::make_shared<Texture>();
+	t->width_ = width;
+	t->height_ = height;
+	t->name_ = std::move(name);
+	glGenTextures(1, &t->id_);
+	glBindTexture(GL_TEXTURE_2D, t->id_);
+	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+	// One and two channels stay data; sRGB applies to colour (three or four channels).
+	static const GLenum formats[]{GL_RED, GL_RG, GL_RGB, GL_RGBA};
+	const GLenum format = formats[channels - 1];
+	GLenum internal = channels == 1 ? GL_R8 : channels == 2 ? GL_RG8 : channels == 3 ? GL_RGB8 : GL_RGBA8;
+	if (srgb && channels == 3) internal = GL_SRGB8;
+	if (srgb && channels == 4) internal = GL_SRGB8_ALPHA8;
+	// Uploaded top row first, so texture coordinate v = 0 is the image's top, as glTF has it. OBJ files count v from
+	// the bottom; load_obj turns theirs round.
+	glTexImage2D(GL_TEXTURE_2D, 0, GLint(internal), width, height, 0, format, GL_UNSIGNED_BYTE, pixels);
+	if (channels == 1) {
+		const GLint grey[]{GL_RED, GL_RED, GL_RED, GL_ONE};
+		glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_RGBA, grey);
+	}
+	glGenerateMipmap(GL_TEXTURE_2D);
+	sampling(true);
+	glBindTexture(GL_TEXTURE_2D, 0);
+	glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+	return t;
+}
+
+std::shared_ptr<Texture> Texture::from_floats(int width, int height, int channels, const float *pixels, std::string name)
+{
+	if (width <= 0 || height <= 0 || (channels != 3 && channels != 4) || !pixels) {
+		return nullptr;
+	}
+	auto t = std::make_shared<Texture>();
+	t->width_ = width;
+	t->height_ = height;
+	t->hdr_ = true;
+	t->name_ = std::move(name);
+	glGenTextures(1, &t->id_);
+	glBindTexture(GL_TEXTURE_2D, t->id_);
+	glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+	// 32-bit float: a photographed sun is far brighter than half floats hold (65504), and would become infinite.
+	glTexImage2D(GL_TEXTURE_2D, 0, channels == 3 ? GL_RGB32F : GL_RGBA32F, width, height, 0, channels == 3 ? GL_RGB : GL_RGBA, GL_FLOAT, pixels);
+	glGenerateMipmap(GL_TEXTURE_2D);
+	sampling(true);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE); // Equirectangular images do not wrap at the poles.
+	glBindTexture(GL_TEXTURE_2D, 0);
+	return t;
+}
+
+std::shared_ptr<Texture> load_texture_from_memory(const unsigned char *data, std::size_t size, bool srgb, std::string name, std::string *error)
+{
+	if (!data || size == 0 || size > std::size_t(INT32_MAX)) {
+		if (error) *error = name + ": no image data";
+		return nullptr;
+	}
+	stbi_set_flip_vertically_on_load(0);
+	int w = 0, h = 0, n = 0;
+	if (stbi_is_hdr_from_memory(data, int(size))) {
+		float *pixels = stbi_loadf_from_memory(data, int(size), &w, &h, &n, 0);
+		if (!pixels) {
+			if (error) *error = name + ": " + stbi_failure_reason();
+			return nullptr;
+		}
+		const int channels = n >= 4 ? 4 : 3;
+		std::vector<float> expanded;
+		const float *source = pixels;
+		if (n < 3) { // Grey HDR: repeated into RGB.
+			expanded.resize(std::size_t(w) * std::size_t(h) * 3);
+			for (std::size_t i = 0; i < std::size_t(w) * std::size_t(h); ++i) {
+				expanded[i * 3] = expanded[i * 3 + 1] = expanded[i * 3 + 2] = pixels[i * std::size_t(n)];
+			}
+			source = expanded.data();
+		}
+		auto t = Texture::from_floats(w, h, n < 3 ? 3 : channels, source, name);
+		stbi_image_free(pixels);
+		return t;
+	}
+	unsigned char *pixels = stbi_load_from_memory(data, int(size), &w, &h, &n, 0);
+	if (!pixels) {
+		if (error) *error = name + ": " + stbi_failure_reason();
+		return nullptr;
+	}
+	auto t = Texture::from_pixels(w, h, n, pixels, srgb, name);
+	stbi_image_free(pixels);
+	if (!t && error) *error = name + ": unusable image";
+	return t;
+}
+
+std::shared_ptr<Texture> load_texture(const fs::path &path, bool srgb, std::string *error)
+{
+	std::error_code ignored;
+	const std::string key = fs::weakly_canonical(path, ignored).string() + (srgb ? "|srgb" : "|linear");
+	if (auto found = cache()[key].lock()) {
+		return found;
+	}
+	const auto bytes = read_file(path);
+	if (bytes.empty()) {
+		if (error) *error = path.string() + ": cannot be read";
+		return nullptr;
+	}
+	auto t = load_texture_from_memory(bytes.data(), bytes.size(), srgb, path.string(), error);
+	if (t) {
+		cache()[key] = t;
+	}
+	return t;
+}
+
+FloatImage read_float_image(const fs::path &path, std::string *error)
+{
+	FloatImage image;
+	const auto bytes = read_file(path);
+	if (bytes.empty() || bytes.size() > std::size_t(INT32_MAX)) {
+		if (error) *error = path.string() + ": cannot be read";
+		return image;
+	}
+	int n = 0;
+	float *pixels = stbi_loadf_from_memory(bytes.data(), int(bytes.size()), &image.width, &image.height, &n, 3);
+	if (!pixels) {
+		if (error) *error = path.string() + ": " + stbi_failure_reason();
+		image.width = image.height = 0;
+		return image;
+	}
+	const std::size_t count = std::size_t(image.width) * std::size_t(image.height) * 3;
+	image.pixels = std::make_unique<float[]>(count);
+	std::copy(pixels, pixels + count, image.pixels.get());
+	stbi_image_free(pixels);
+	return image;
+}
+
+} // namespace rimgui::rt

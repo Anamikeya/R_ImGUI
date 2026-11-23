@@ -16,3 +16,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 add_subdirectory(rimgui)
 add_subdirectory(templates/starter)
 add_subdirectory(templates/renderlab)
+
+# Tests: ctest --test-dir build. They open OpenGL windows that are never shown.
+enable_testing()
+add_subdirectory(tests)

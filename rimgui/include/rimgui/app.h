@@ -12,6 +12,7 @@
 
 #include <functional>
 #include <string>
+#include <vector>
 
 namespace rimgui {
 
@@ -30,6 +31,8 @@ struct AppConfig {
 	// Called once OpenGL and ImGui are ready, before the first frame; and once after the last, while OpenGL is still
 	// there, to free what on_start made.
 	std::function<void()> on_start, on_exit;
+	// Files dropped on the window, as UTF-8 paths.
+	std::function<void(const std::vector<std::string> &)> on_drop;
 	int toolbar_rows = 1;            // How tall the docked toolbar strip (DockAreas::top) is first made, in rows.
 	// Docks windows the first time (no saved layout yet), or after reset_layout().
 	std::function<void(const DockAreas &)> first_layout;
@@ -41,10 +44,11 @@ struct AppConfig {
 // closed or quit() is called. Returns the process exit code. Options it reads from the command line:
 //   --screenshot <file.ppm>  saves the window after its 60th frame, then quits (for docs and tests)
 //   --screenshot-frame <n>   after the nth frame instead
+//   --hidden                 never shows the window (automated checks; drawing to framebuffers still works)
 int run(const AppConfig &config, const std::function<void()> &frame, int argc = 0, char **argv = nullptr);
 
-// Ends the loop after this frame.
-void quit();
+// Ends the loop after this frame; run() returns `exit_code` (a screenshot that failed wins over 0).
+void quit(int exit_code = 0);
 // Docks the windows again as first_layout says, from the next frame.
 void reset_layout();
 

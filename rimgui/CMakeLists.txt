@@ -27,22 +27,34 @@ endif()
 # rimgui_rt: the realtime rendering research kit (OpenGL 3.3 to 4.6). See include/rimgui/rt/lab.h.
 add_library(rimgui_rt STATIC
 	include/rimgui/rt/camera.h
+	include/rimgui/rt/environment.h
 	include/rimgui/rt/gl.h
 	include/rimgui/rt/lab.h
 	include/rimgui/rt/math.h
 	include/rimgui/rt/mesh.h
+	include/rimgui/rt/model.h
+	include/rimgui/rt/scene.h
+	include/rimgui/rt/settings.h
 	include/rimgui/rt/shader.h
 	include/rimgui/rt/target.h
+	include/rimgui/rt/texture.h
 	include/rimgui/rt/timer.h
 	src/rt/camera.cpp
+	src/rt/environment.cpp
 	src/rt/gl.cpp
 	src/rt/lab.cpp
 	src/rt/mesh.cpp
+	src/rt/model.cpp
+	src/rt/scene.cpp
+	src/rt/settings.cpp
 	src/rt/shader.cpp
 	src/rt/target.cpp
+	src/rt/texture.cpp
 	src/rt/timer.cpp
 )
 target_link_libraries(rimgui_rt PUBLIC rimgui rimgui_glfw_deps)
+# stb_image, stb_image_write and cgltf, kept in this repository (third_party/README.md).
+target_include_directories(rimgui_rt SYSTEM PRIVATE "${CMAKE_CURRENT_LIST_DIR}/third_party/stb" "${CMAKE_CURRENT_LIST_DIR}/third_party/cgltf")
 # The kit's own shaders (tonemapping, the texture inspector, the sky), read from here while developing.
 target_compile_definitions(rimgui_rt PRIVATE RIMGUI_KIT_SHADERS="${CMAKE_CURRENT_LIST_DIR}/shaders")
 if(MSVC)

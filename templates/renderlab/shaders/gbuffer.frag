@@ -1,17 +1,19 @@
 #version 330 core
-// The G-buffer: albedo and roughness; the view-space normal and metallic; emissive.
+#include "rimgui_material.glsl"
+// The G-buffer: albedo and roughness; the view-space normal and metallic; emissive and occlusion.
+in vec3 v_world;
 in vec3 v_normal;
+in vec2 v_uv;
 layout(location = 0) out vec4 o_albedo_roughness;
 layout(location = 1) out vec4 o_normal_metallic;
-layout(location = 2) out vec3 o_emissive;
+layout(location = 2) out vec4 o_emissive_occlusion;
 
 uniform mat4 u_view;
-uniform vec3 u_albedo, u_emissive;
-uniform float u_roughness, u_metallic;
 
 void main()
 {
-    o_albedo_roughness = vec4(u_albedo, u_roughness);
-    o_normal_metallic = vec4(normalize(mat3(u_view) * normalize(v_normal)), u_metallic);
-    o_emissive = u_emissive;
+    Surface s = surface(v_world, v_normal, v_uv);
+    o_albedo_roughness = vec4(s.albedo, s.roughness);
+    o_normal_metallic = vec4(normalize(mat3(u_view) * s.normal), s.metallic);
+    o_emissive_occlusion = vec4(s.emissive, s.occlusion);
 }
