@@ -37,6 +37,7 @@ add_library(rimgui_rt_core STATIC
 	include/rimgui/rt/image.h
 	include/rimgui/rt/math.h
 	include/rimgui/rt/mesh_data.h
+	include/rimgui/rt/meshlets.h
 	include/rimgui/rt/model_data.h
 	include/rimgui/rt/scene_core.h
 	include/rimgui/rt/settings.h
@@ -45,6 +46,7 @@ add_library(rimgui_rt_core STATIC
 	src/rt/image_write.cpp
 	src/rt/lab_core.inl
 	src/rt/mesh_data.cpp
+	src/rt/meshlets.cpp
 	src/rt/model_data.cpp
 	src/rt/scene_core.cpp
 	src/rt/settings.cpp
@@ -101,6 +103,7 @@ if(RIMGUI_HAS_VULKAN)
 		include/rimgui/rt/vk/environment.h
 		include/rimgui/rt/vk/gpu.h
 		include/rimgui/rt/vk/lab.h
+		include/rimgui/rt/vk/meshlets.h
 		include/rimgui/rt/vk/scene.h
 		include/rimgui/rt/vk/shader.h
 		include/rimgui/rt/vk/timer.h
@@ -108,6 +111,7 @@ if(RIMGUI_HAS_VULKAN)
 		src/rt/vk/environment.cpp
 		src/rt/vk/gpu.cpp
 		src/rt/vk/lab.cpp
+		src/rt/vk/meshlets.cpp
 		src/rt/vk/scene.cpp
 		src/rt/vk/shader.cpp
 		src/rt/vk/timer.cpp

@@ -1,0 +1,29 @@
+#version 460
+// The mesh shader: one group a meshlet, 32 threads writing its vertices (pulled and transformed as mesh.vert does) and
+// its triangles, for pbr.frag.
+#include "meshlet_constants.glsl"
+layout(local_size_x = 32) in;
+layout(triangles, max_vertices = 64, max_primitives = 124) out;
+taskPayloadSharedEXT TaskPayload payload;
+
+layout(location = 0) out vec3 v_world[];
+layout(location = 1) out vec3 v_normal[];
+layout(location = 2) out vec2 v_uv[];
+
+void main()
+{
+    Meshlet m = pc.meshlets.m[payload.meshlets[gl_WorkGroupID.x]];
+    SetMeshOutputsEXT(m.vertex_count, m.triangle_count);
+    ObjectData o = pc.object;
+    for (uint i = gl_LocalInvocationIndex; i < m.vertex_count; i += 32u) {
+        Vertex v = vertex(o, pc.meshlet_vertices.v[m.vertex_offset + i]);
+        vec4 world = o.model * vec4(v.position, 1.0);
+        v_world[i] = world.xyz;
+        v_normal[i] = mat3(o.normal_matrix) * v.normal;
+        v_uv[i] = v.uv;
+        gl_MeshVerticesEXT[i].gl_Position = rimgui_vk_clip(pc.frame.view_projection * world);
+    }
+    for (uint i = gl_LocalInvocationIndex; i < m.triangle_count; i += 32u) {
+        gl_PrimitiveTriangleIndicesEXT[i] = meshlet_triangle(pc.meshlet_triangles.t[m.triangle_offset + i]);
+    }
+}

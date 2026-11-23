@@ -10,6 +10,7 @@
 #include <rimgui/rt/gl.h>
 #include <rimgui/rt/math.h>
 #include <rimgui/rt/mesh.h>
+#include <rimgui/rt/meshlets.h>
 #include <rimgui/rt/model.h>
 #include <rimgui/rt/scene.h>
 #include <rimgui/rt/settings.h>
@@ -352,6 +353,47 @@ void test_environment(const fs::path &folder, const fs::path &kit_shaders)
 	check(!env.load(folder / "missing.hdr", shaders, &error) && env.loaded(), "a missing file is refused and the last environment stays");
 }
 
+// Meshlets: every triangle in exactly one meshlet with its own three vertices, within the limits; a flat floor's
+// meshlets have cones straight up that cull from below and not from above.
+void test_meshlets()
+{
+	for (const auto &[name, mesh] : {std::pair<const char *, MeshData>{"sphere", make_sphere()}, {"torus", make_torus()}, {"plane", make_plane()}}) {
+		const MeshletData m = build_meshlets(mesh);
+		std::vector<std::array<unsigned, 3>> rebuilt;
+		bool within = true;
+		for (const Meshlet &ml : m.meshlets) {
+			within = within && ml.vertex_count <= meshlet_max_vertices && ml.triangle_count <= meshlet_max_triangles && ml.triangle_count > 0;
+			for (uint32_t t = 0; t < ml.triangle_count; ++t) {
+				const uint32_t packed = m.triangles[ml.triangle_offset + t];
+				std::array<unsigned, 3> tri{};
+				for (int k = 0; k < 3; ++k) {
+					const uint32_t local = (packed >> (8 * k)) & 0xFF;
+					within = within && local < ml.vertex_count;
+					tri[std::size_t(k)] = m.vertices[ml.vertex_offset + local];
+				}
+				rebuilt.push_back(tri);
+			}
+		}
+		bool same = rebuilt.size() * 3 == mesh.indices.size();
+		for (std::size_t t = 0; same && t < rebuilt.size(); ++t) {
+			same = rebuilt[t][0] == mesh.indices[t * 3] && rebuilt[t][1] == mesh.indices[t * 3 + 1] && rebuilt[t][2] == mesh.indices[t * 3 + 2];
+		}
+		check(within, std::string(name) + ": meshlets keep to 64 vertices and 124 triangles");
+		check(same, std::string(name) + ": every triangle is in a meshlet once, with its own vertices, in order");
+	}
+	const MeshletData floor = build_meshlets(make_plane());
+	bool up = !floor.meshlets.empty();
+	for (const Meshlet &ml : floor.meshlets) {
+		up = up && near(ml.cone_axis.y, 1, 1e-4f) && ml.cone_cutoff < 1e-3f;
+		// Seen from below every triangle faces away (culled); from above none does.
+		const float away = ml.radius + 3;
+		const vec3 below = ml.centre - vec3{0, away, 0}, above = ml.centre + vec3{0, away, 0};
+		const auto culled = [&](vec3 eye) { return dot(ml.centre - eye, ml.cone_axis) >= ml.cone_cutoff * length(ml.centre - eye) + ml.radius; };
+		up = up && culled(below) && !culled(above);
+	}
+	check(up, "a floor's meshlets face up, and their cones cull them from below only");
+}
+
 void test_scene()
 {
 	Scene scene;
@@ -479,6 +521,7 @@ int main(int argc, char **argv)
 		{"meshes and models", [&] { test_meshes_and_models(folder); }},
 		{"environment", [&] { test_environment(folder, kit_shaders); }},
 		{"scene", test_scene},
+		{"meshlets", test_meshlets},
 		{"timers", test_timers},
 	};
 	for (const auto &[name, run] : tests) {

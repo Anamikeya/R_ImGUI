@@ -64,6 +64,24 @@ if(RIMGUI_HAS_VULKAN)
 	renderlab_vk_check(path_traced --technique "Path-traced reference")
 	renderlab_vk_check(path_traced_environment --technique "Path-traced reference" --environment "${_fixtures}/test_sky.hdr")
 	renderlab_vk_check(path_traced_vs_raster --technique "Path-traced reference" --compare "Forward PBR" --difference)
+	# Mesh shaders draw what Forward PBR draws, culling included: the default view, and a close-up where most meshlets
+	# are outside the frustum.
+	renderlab_vk_check(mesh_shaders --technique "Mesh shaders (meshlets)")
+	foreach(_view default closeup)
+		set(_camera "")
+		if(_view STREQUAL "closeup")
+			set(_camera --camera "-1.3,0.5,0,0.9,30,10")
+		endif()
+		foreach(_technique "Forward PBR" "Mesh shaders (meshlets)")
+			string(MAKE_C_IDENTIFIER "${_technique}" _id)
+			add_test(NAME meshlets.${_view}.${_id} COMMAND RenderLabVulkan --hidden --validation --check --no-settings --resolution 1280x720
+				--technique "${_technique}" ${_camera} --save-view "${CMAKE_CURRENT_BINARY_DIR}/meshlets.${_view}.${_id}.png")
+			set_tests_properties(meshlets.${_view}.${_id} PROPERTIES FIXTURES_SETUP meshlets_${_view} TIMEOUT 120)
+		endforeach()
+		add_test(NAME meshlets.${_view} COMMAND rimgui_rt_tests --compare "${CMAKE_CURRENT_BINARY_DIR}/meshlets.${_view}.Forward_PBR.png"
+			"${CMAKE_CURRENT_BINARY_DIR}/meshlets.${_view}.Mesh_shaders__meshlets_.png" 0.05 0.0005)
+		set_tests_properties(meshlets.${_view} PROPERTIES FIXTURES_REQUIRED meshlets_${_view})
+	endforeach()
 	# The path tracer converges: its picture after 256 frames is close to the one after 1024.
 	set(_pt "${CMAKE_CURRENT_BINARY_DIR}/convergence")
 	foreach(_frames 256 1024)

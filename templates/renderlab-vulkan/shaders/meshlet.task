@@ -1,0 +1,39 @@
+#version 460
+// The task shader: 32 meshlets a group, each tested against the view frustum and its normal cone; the survivors are
+// handed to mesh shader groups, one each. What was culled is counted for the Timings panel.
+#include "meshlet_constants.glsl"
+layout(local_size_x = 32) in;
+taskPayloadSharedEXT TaskPayload payload;
+shared uint survivors;
+
+void main()
+{
+    if (gl_LocalInvocationIndex == 0u) survivors = 0u;
+    barrier();
+    uint index = gl_GlobalInvocationID.x;
+    if (index < pc.meshlet_count) {
+        Meshlet m = pc.meshlets.m[index];
+        ObjectData o = pc.object;
+        vec3 centre = (o.model * vec4(m.centre, 1.0)).xyz;
+        // The sphere grows with the object's largest scale.
+        float scale = max(length(o.model[0].xyz), max(length(o.model[1].xyz), length(o.model[2].xyz)));
+        float radius = m.radius * scale;
+        bool culled = false;
+        if ((pc.cull & 1u) != 0u && frustum_culled(pc.planes, centre, radius)) {
+            culled = true;
+            atomicAdd(pc.counters.frustum, 1u);
+        } else if ((pc.cull & 2u) != 0u) {
+            vec3 axis = normalize(mat3(o.normal_matrix) * m.cone_axis);
+            if (cone_culled(m, centre, radius, axis, pc.frame.camera_position)) {
+                culled = true;
+                atomicAdd(pc.counters.cone, 1u);
+            }
+        }
+        if (!culled) {
+            uint slot = atomicAdd(survivors, 1u);
+            payload.meshlets[slot] = index;
+        }
+    }
+    barrier();
+    EmitMeshTasksEXT(survivors, 1, 1);
+}

@@ -7,16 +7,20 @@
 //   Deferred + SSAO       a G-buffer, SSAO, a blur and the lighting as compute passes, blended objects forward on top
 //   Hybrid RT shadows + AO  the same G-buffer with the sun's shadows and ambient occlusion traced by ray queries
 //   Path-traced reference   hardware ray tracing with accumulation: the ground truth for the others
+//   Mesh shaders (meshlets) Forward PBR through task and mesh shaders, culling meshlets by frustum and normal cone
 //   Sky and environment   the background alone
 //
 // Add your own: derive from rimgui::rt::vk::Technique, record into frame.cb, write its shaders in shaders/ (include
 // "rimgui_vk_scene.glsl", "rimgui_vk_lighting.glsl", "rimgui_vk_material.glsl"), and lab.add() it in main().
 #include <rimgui/rt/vk/lab.h>
+#include <rimgui/rt/vk/meshlets.h>
 
 #include <imgui.h>
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
+#include <cstring>
 #include <memory>
 
 using namespace rimgui::rt;
@@ -84,6 +88,23 @@ public:
 	void render(Frame &frame) override
 	{
 		VkCommandBuffer cb = frame.cb;
+		const Constants c = prepare_constants(frame);
+		auto timed = frame.scope("Forward");
+		Pipeline &opaque = frame.shaders->graphics("pbr", output_pass(frame, "pbr.frag", false));
+		Pipeline &blended = frame.shaders->graphics("pbr blended", output_pass(frame, "pbr.frag", true));
+		frame.begin_output();
+		frame.scene->draw(cb, opaque, DrawFilter::Opaque, frame.camera_position, c);
+		frame.draw_sky();
+		// Blended surfaces last, over the sky, back to front.
+		frame.scene->draw(cb, blended, DrawFilter::Transparent, frame.camera_position, c);
+		frame.end_output();
+	}
+
+protected:
+	// The settings as push constants, and the shadow map drawn when shadows are on.
+	Constants prepare_constants(Frame &frame)
+	{
+		VkCommandBuffer cb = frame.cb;
 		Constants c;
 		c.draw = frame.constants();
 		c.view_mode = view_;
@@ -119,18 +140,9 @@ public:
 			c.shadow_map = shadow_map_.depth()->sampled_index();
 			frame.expose_depth("Shadow map", shadow_map_);
 		}
-		auto timed = frame.scope("Forward");
-		Pipeline &opaque = frame.shaders->graphics("pbr", output_pass(frame, "pbr.frag", false));
-		Pipeline &blended = frame.shaders->graphics("pbr blended", output_pass(frame, "pbr.frag", true));
-		frame.begin_output();
-		frame.scene->draw(cb, opaque, DrawFilter::Opaque, frame.camera_position, c);
-		frame.draw_sky();
-		// Blended surfaces last, over the sky, back to front.
-		frame.scene->draw(cb, blended, DrawFilter::Transparent, frame.camera_position, c);
-		frame.end_output();
+		return c;
 	}
 
-private:
 	RenderTarget shadow_map_{{}, VK_FORMAT_D32_SFLOAT, "Shadow map"};
 	int view_ = 0, shadow_size_ = 2048, pcf_ = 1;
 	bool shadows_ = true;
@@ -516,6 +528,172 @@ private:
 	float clamp_ = 0;
 };
 
+// ---- Forward PBR through mesh shaders ------------------------------------------------------------------------------
+
+class MeshletPbr : public ForwardPbr {
+public:
+	// meshlet_constants.glsl: Forward PBR's constants, then the meshlets and the culling.
+	struct Constants {
+		ForwardPbr::Constants pbr;
+		VkDeviceAddress meshlets = 0, meshlet_vertices = 0, meshlet_triangles = 0, counters = 0;
+		uint32_t meshlet_count = 0, cull = 0;
+		vec4 planes[6];
+	};
+	static_assert(offsetof(Constants, meshlets) == 104 && sizeof(Constants) == 240, "MeshletPbr::Constants must match meshlet_constants.glsl");
+
+	std::string name() const override { return "Mesh shaders (meshlets)"; }
+	std::string description() const override
+	{
+		return "Forward PBR drawn by task and mesh shaders: every mesh cut into meshlets of at most 64 vertices and 124 "
+			   "triangles; a task shader culls whole meshlets outside the view and facing away (normal cones) before the "
+			   "mesh shader emits the rest. The same picture as Forward PBR.";
+	}
+	void settings() override
+	{
+		if (!supported_) {
+			ImGui::TextColored({1, 0.6f, 0.4f, 1}, "This GPU has no mesh shaders: nothing is drawn.");
+		}
+		ImGui::Checkbox("Frustum culling", &frustum_);
+		ImGui::Checkbox("Normal cone culling", &cone_);
+		ImGui::SetItemTooltip("Meshlets whose triangles all face away from the camera; not for double-sided materials");
+		ImGui::Separator();
+		ForwardPbr::settings();
+	}
+	void serialize(Settings &s) override
+	{
+		ForwardPbr::serialize(s);
+		s.value("frustum_culling", frustum_);
+		s.value("cone_culling", cone_);
+	}
+	void render(Frame &frame) override
+	{
+		VkCommandBuffer cb = frame.cb;
+		supported_ = rimgui::vulkan::context()->features.mesh_shader;
+		if (!supported_) {
+			frame.begin_output();
+			frame.draw_sky();
+			frame.end_output();
+			return;
+		}
+		read_counters(cb);
+		Constants c;
+		c.pbr = prepare_constants(frame);
+		c.counters = counters_[slot_]->address();
+		frustum_planes(frame.view_projection, c.planes);
+		auto timed = frame.scope("Forward (mesh shaders)");
+		GraphicsDesc d;
+		d.task = "meshlet.task";
+		d.mesh = "meshlet.mesh";
+		d.fragment = "pbr.frag";
+		d.colors = frame.output->color_formats();
+		d.depth = frame.output->depth_format();
+		Pipeline &opaque = frame.shaders->graphics("meshlet pbr", d);
+		d.blend = Blend::Alpha;
+		d.depth_write = false;
+		Pipeline &blended = frame.shaders->graphics("meshlet pbr blended", d);
+		submitted_ = 0;
+		frame.begin_output();
+		draw(frame, opaque, DrawFilter::Opaque, c);
+		frame.draw_sky();
+		draw(frame, blended, DrawFilter::Transparent, c);
+		frame.end_output();
+		cache_.prune();
+	}
+	void statistics() override
+	{
+		if (!supported_) {
+			ImGui::TextDisabled("No mesh shaders on this GPU");
+			return;
+		}
+		const uint32_t culled = shown_frustum_ + shown_cone_;
+		ImGui::TextDisabled("Meshlets: %u in view's objects, %u culled outside the view, %u facing away, %u drawn (%.0f%%)", shown_total_,
+			shown_frustum_, shown_cone_, shown_total_ > culled ? shown_total_ - culled : 0,
+			shown_total_ ? 100.0 * double(shown_total_ - std::min(culled, shown_total_)) / double(shown_total_) : 0.0);
+	}
+
+private:
+	void draw(Frame &frame, const Pipeline &pipeline, DrawFilter filter, Constants c)
+	{
+		if (!pipeline.ready()) {
+			return;
+		}
+		VkCommandBuffer cb = frame.cb;
+		const Scene &scene = *frame.scene;
+		pipeline.bind(cb, c);
+		VkCullModeFlags culling = pipeline.cull();
+		for (const Object *o : scene_core::draw_order(scene.objects, filter, frame.camera_position)) {
+			const MeshletBuffers &b = cache_.get(o->mesh);
+			if (b.count == 0) {
+				continue;
+			}
+			c.pbr.draw.object = scene.object_address(std::size_t(o - scene.objects.data()));
+			c.meshlets = b.meshlets->address();
+			c.meshlet_vertices = b.vertices->address();
+			c.meshlet_triangles = b.triangles->address();
+			c.meshlet_count = b.count;
+			// The cone test holds under rotation and uniform scale only.
+			const mat4 m = o->model();
+			const float sx = length(vec3{m.at(0, 0), m.at(1, 0), m.at(2, 0)}), sy = length(vec3{m.at(0, 1), m.at(1, 1), m.at(2, 1)}),
+						sz = length(vec3{m.at(0, 2), m.at(1, 2), m.at(2, 2)});
+			const bool uniform = std::max({sx, sy, sz}) <= std::min({sx, sy, sz}) * 1.01f;
+			c.cull = (frustum_ ? 1u : 0u) | (cone_ && uniform && !o->material.double_sided ? 2u : 0u);
+			vkCmdPushConstants(cb, Gpu::get()->pipeline_layout(), VK_SHADER_STAGE_ALL, 0, sizeof c, &c);
+			const VkCullModeFlags wanted = o->material.double_sided ? VK_CULL_MODE_NONE : pipeline.cull();
+			if (wanted != culling) {
+				vkCmdSetCullMode(cb, wanted);
+				culling = wanted;
+			}
+			vkCmdDrawMeshTasksEXT(cb, (b.count + 31) / 32, 1, 1);
+			submitted_ += b.count;
+		}
+		if (culling != pipeline.cull()) {
+			vkCmdSetCullMode(cb, pipeline.cull());
+		}
+	}
+
+	// The counts this frame slot's last frame made (the shell waited for it), then the counters cleared for this one.
+	void read_counters(VkCommandBuffer cb)
+	{
+		const auto &ctx = *rimgui::vulkan::context();
+		if (counters_.size() != ctx.frames_in_flight) {
+			counters_.clear();
+			totals_.assign(ctx.frames_in_flight, 0);
+			for (uint32_t i = 0; i < ctx.frames_in_flight; ++i) {
+				counters_.push_back(Buffer::create(16, 0, Memory::Readback, "Meshlet cull counters"));
+				std::memset(counters_.back()->mapped(), 0, 16);
+			}
+		}
+		totals_[slot_] = submitted_;
+		slot_ = ctx.frame_slot;
+		const auto *counts = static_cast<const uint32_t *>(counters_[slot_]->mapped());
+		shown_frustum_ = counts[0];
+		shown_cone_ = counts[1];
+		shown_total_ = totals_[slot_];
+		vkCmdFillBuffer(cb, counters_[slot_]->buffer(), 0, 16, 0);
+		barrier(cb);
+	}
+
+	// The view frustum's six planes in world space, facing inwards, from OpenGL's clip space (-w <= x, y, z <= w).
+	static void frustum_planes(const mat4 &vp, vec4 planes[6])
+	{
+		const auto row = [&](int r) { return vec4{vp.at(r, 0), vp.at(r, 1), vp.at(r, 2), vp.at(r, 3)}; };
+		const vec4 r0 = row(0), r1 = row(1), r2 = row(2), r3 = row(3);
+		const auto add = [](vec4 a, vec4 b, float s) { return vec4{a.x + b.x * s, a.y + b.y * s, a.z + b.z * s, a.w + b.w * s}; };
+		const vec4 p[6]{add(r3, r0, 1), add(r3, r0, -1), add(r3, r1, 1), add(r3, r1, -1), add(r3, r2, 1), add(r3, r2, -1)};
+		for (int i = 0; i < 6; ++i) {
+			const float l = std::sqrt(p[i].x * p[i].x + p[i].y * p[i].y + p[i].z * p[i].z);
+			planes[i] = l > 0 ? vec4{p[i].x / l, p[i].y / l, p[i].z / l, p[i].w / l} : p[i];
+		}
+	}
+
+	MeshletCache cache_;
+	std::vector<std::shared_ptr<Buffer>> counters_;
+	std::vector<uint32_t> totals_;
+	uint32_t slot_ = 0, submitted_ = 0;
+	uint32_t shown_total_ = 0, shown_frustum_ = 0, shown_cone_ = 0;
+	bool frustum_ = true, cone_ = true, supported_ = true;
+};
+
 // ---- The background alone ------------------------------------------------------------------------------------------
 
 class SkyOnly : public Technique {
@@ -545,6 +723,7 @@ int main(int argc, char **argv)
 	lab.add(std::make_unique<DeferredSsao>());
 	lab.add(std::make_unique<HybridRt>());
 	lab.add(std::make_unique<PathTracer>());
+	lab.add(std::make_unique<MeshletPbr>());
 	lab.add(std::make_unique<SkyOnly>());
 	LabConfig config;
 	config.title = "RenderLab Vulkan";
