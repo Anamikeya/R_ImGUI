@@ -1,0 +1,114 @@
+#version 460
+// The path-traced reference: unidirectional path tracing with next-event estimation to the sun, light from the sky and
+// the environment where paths leave the scene, GGX and Lambert sampled by their weights, Russian roulette, and the
+// frames summed while nothing changes.
+#include "pt_common.glsl"
+#include "rimgui_vk_lighting.glsl"
+
+layout(location = 0) rayPayloadEXT Hit hit;
+layout(location = 1) rayPayloadEXT bool shadowed;
+
+// Light from the sky where a path leaves the scene, as the raster techniques' ambient light has it: the environment
+// image, or the gradient sky times the ambient strength. The sun's disc is left out when the sun is sampled directly.
+vec3 sky_radiance(FrameData f, vec3 dir)
+{
+    if (f.has_environment == 1) return sample_cube(f.environment, environment_direction(f, dir), 0.0).rgb * f.environment_intensity;
+    return sky_light(f, dir) * f.ambient;
+}
+
+bool visible(vec3 origin, vec3 dir, float distance)
+{
+    shadowed = true;
+    traceRayEXT(u_scene, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT, 0xFF, 0, 1, 1, origin, 0.0, dir, distance, 1);
+    return !shadowed;
+}
+
+float luminance(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
+
+vec3 trace_path(FrameData f, vec2 ndc, inout uint rng)
+{
+    vec4 near_point = f.inverse_view_projection * vec4(ndc, -1.0, 1.0);
+    vec4 far_point = f.inverse_view_projection * vec4(ndc, 1.0, 1.0);
+    vec3 origin = near_point.xyz / near_point.w;
+    vec3 dir = normalize(far_point.xyz / far_point.w - origin);
+    vec3 radiance = vec3(0.0), throughput = vec3(1.0);
+    for (int bounce = 0; bounce <= pc.max_bounces; ++bounce) {
+        hit.t = -1.0;
+        traceRayEXT(u_scene, gl_RayFlagsNoneEXT, 0xFF, 0, 1, 0, origin, 0.0, dir, 1e30, 0);
+        if (hit.t < 0.0) {
+            // The camera sees the sky as the raster sky pass draws it; bounces gather its light.
+            radiance += throughput * (bounce == 0 ? sky_colour(f, dir) : sky_radiance(f, dir));
+            if (bounce > 0 && pc.sun_nee == 0) {
+                float sun = smoothstep(0.9995, 0.9998, dot(dir, f.sun_direction));
+                radiance += throughput * f.sun_color * sun * 8.0;
+            }
+            break;
+        }
+        HitSurface s = hit_surface(f, hit.object, hit.primitive, hit.bary, dir);
+        vec3 v = -dir;
+        radiance += throughput * s.emissive;
+        vec3 p = offset_origin(s.position, s.geometric_normal);
+        // The sun, directly: a shadow ray towards it.
+        if (pc.sun_nee == 1 && dot(s.normal, f.sun_direction) > 0.0 && dot(s.geometric_normal, f.sun_direction) > 0.0) {
+            if (visible(p, f.sun_direction, 1e30)) {
+                vec3 diffuse, specular;
+                brdf(s.normal, v, f.sun_direction, s.albedo, s.roughness, s.metallic, diffuse, specular);
+                radiance += throughput * (diffuse + specular) * f.sun_color;
+            }
+        }
+        if (bounce == pc.max_bounces) break;
+        // The next direction: the specular lobe with probability p_spec, else the diffuse one; the weight divides by
+        // the pdf of both, so either choice is unbiased.
+        float NoV = max(dot(s.normal, v), 1e-4);
+        vec3 f0 = mix(vec3(0.04), s.albedo, s.metallic);
+        vec3 F = F_Schlick(NoV, f0);
+        float spec_weight = luminance(F);
+        float diff_weight = luminance((1.0 - F) * (1.0 - s.metallic) * s.albedo);
+        float p_spec = clamp(spec_weight / max(spec_weight + diff_weight, 1e-4), 0.1, 0.9);
+        float a = max(s.roughness * s.roughness, 0.002);
+        vec2 xi = vec2(random01(rng), random01(rng));
+        vec3 l;
+        if (random01(rng) < p_spec) {
+            vec3 h = sample_ggx_half(s.normal, a, xi);
+            l = reflect(-v, h);
+        } else {
+            l = sample_cosine(s.normal, xi);
+        }
+        float NoL = dot(s.normal, l);
+        if (NoL <= 0.0 || dot(s.geometric_normal, l) <= 0.0) break;
+        vec3 h = normalize(v + l);
+        float NoH = max(dot(s.normal, h), 0.0), VoH = max(dot(v, h), 1e-4);
+        float pdf = p_spec * D_GGX(NoH, a) * NoH / (4.0 * VoH) + (1.0 - p_spec) * NoL / PI;
+        vec3 diffuse, specular;
+        brdf(s.normal, v, l, s.albedo, s.roughness, s.metallic, diffuse, specular);
+        throughput *= (diffuse + specular) / max(pdf, 1e-6);
+        // Russian roulette after the first bounces.
+        if (bounce >= 2) {
+            float survive = clamp(max(throughput.r, max(throughput.g, throughput.b)), 0.05, 0.95);
+            if (random01(rng) > survive) break;
+            throughput /= survive;
+        }
+        origin = p;
+        dir = l;
+    }
+    if (pc.clamp_value > 0.0) radiance = min(radiance, vec3(pc.clamp_value));
+    return any(isnan(radiance)) || any(isinf(radiance)) ? vec3(0.0) : radiance;
+}
+
+void main()
+{
+    FrameData f = pc.frame;
+    ivec2 pixel = ivec2(gl_LaunchIDEXT.xy);
+    uint rng = seed_for(uvec2(pixel), uint(f.accumulation) * 977u + uint(f.frame_index));
+    vec3 sum = vec3(0.0);
+    for (int i = 0; i < pc.samples; ++i) {
+        // A point in the pixel, different every sample: antialiasing that converges.
+        vec2 jitter = vec2(random01(rng), random01(rng));
+        vec2 ndc = (vec2(pixel) + jitter) / vec2(gl_LaunchSizeEXT.xy) * 2.0 - 1.0;
+        sum += trace_path(f, ndc, rng);
+    }
+    vec4 total = pc.restart == 1 ? vec4(0.0) : imageLoad(u_images[pc.accumulation], pixel);
+    total += vec4(sum, float(pc.samples));
+    imageStore(u_images[pc.accumulation], pixel, total);
+    imageStore(u_images[pc.target], pixel, vec4(total.rgb / max(total.a, 1.0), 1.0));
+}

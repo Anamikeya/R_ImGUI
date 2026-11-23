@@ -16,6 +16,7 @@
 // them logged as an error, so --check --validation fails on misuse of the API.
 #include <rimgui/rt/camera.h>
 #include <rimgui/rt/settings.h>
+#include <rimgui/rt/vk/accel.h>
 #include <rimgui/rt/vk/environment.h>
 #include <rimgui/rt/vk/gpu.h>
 #include <rimgui/rt/vk/scene.h>
@@ -72,6 +73,11 @@ struct Frame {
 	GpuTimers::Scope scope(const std::string &name) const { return timers->scope(cb, prefix + name); }
 	// Asks for accumulation to start over next frame, for a change the lab cannot see.
 	void restart_accumulation() const;
+	// Builds or brings up to date the scene's acceleration structures (u_scene, binding 4), for ray tracing pipelines
+	// and ray queries. False on a GPU without hardware ray tracing: the technique should say so and draw no rays.
+	bool prepare_ray_tracing() const;
+	// The structures prepare_ray_tracing() keeps (their counts, for statistics); null without ray tracing.
+	const AccelerationStructures *acceleration_structures() const;
 
 	Lab *lab = nullptr;
 	std::string prefix;

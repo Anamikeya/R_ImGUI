@@ -97,12 +97,14 @@ set(RIMGUI_KIT_SHADER_DIR "${CMAKE_CURRENT_LIST_DIR}/shaders" CACHE INTERNAL "")
 # include/rimgui/rt/vk/gpu.h. Shaders compile at run time: GLSL through shaderc, HLSL through DXC.
 if(RIMGUI_HAS_VULKAN)
 	add_library(rimgui_rt_vk STATIC
+		include/rimgui/rt/vk/accel.h
 		include/rimgui/rt/vk/environment.h
 		include/rimgui/rt/vk/gpu.h
 		include/rimgui/rt/vk/lab.h
 		include/rimgui/rt/vk/scene.h
 		include/rimgui/rt/vk/shader.h
 		include/rimgui/rt/vk/timer.h
+		src/rt/vk/accel.cpp
 		src/rt/vk/environment.cpp
 		src/rt/vk/gpu.cpp
 		src/rt/vk/lab.cpp

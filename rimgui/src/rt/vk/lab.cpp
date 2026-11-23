@@ -74,6 +74,7 @@ struct VkBackend {
 	std::unique_ptr<Environment> environment;
 	std::array<std::unique_ptr<RenderTarget>, 2> output, display;
 	std::unique_ptr<RenderTarget> preview;
+	std::unique_ptr<AccelerationStructures> accel;
 	std::vector<Readback> readbacks;
 	VkCommandBuffer cb = VK_NULL_HANDLE;
 	bool gpu_started = false;
@@ -124,12 +125,16 @@ struct VkBackend {
 				i == 0 ? "Display A" : "Display B");
 		}
 		preview = std::make_unique<RenderTarget>(std::vector<VkFormat>{VK_FORMAT_R8G8B8A8_UNORM}, VK_FORMAT_UNDEFINED, "Preview");
+		if (AccelerationStructures::supported()) {
+			accel = std::make_unique<AccelerationStructures>();
+		}
 		return true;
 	}
 
 	void stop()
 	{
 		readbacks.clear();
+		accel.reset();
 		for (auto &t : output) t.reset();
 		for (auto &t : display) t.reset();
 		preview.reset();
@@ -401,6 +406,19 @@ void Frame::expose_depth(const std::string &name, const RenderTarget &target) co
 	if (target.depth()) {
 		expose(name, *target.depth(), 1);
 	}
+}
+
+bool Frame::prepare_ray_tracing() const
+{
+	if (!lab || !lab->state_->gpu.accel || !scene) {
+		return false;
+	}
+	return lab->state_->gpu.accel->update(*scene);
+}
+
+const AccelerationStructures *Frame::acceleration_structures() const
+{
+	return lab ? lab->state_->gpu.accel.get() : nullptr;
 }
 
 void Frame::restart_accumulation() const

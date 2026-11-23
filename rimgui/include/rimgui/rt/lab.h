@@ -131,6 +131,7 @@ public:
 	//   --log <file>                   every Log line also written to this file
 	//   --save-view <file.png>         draw 90 frames, save the view's picture (no panels), then quit; with --check,
 	//                                  the check decides the exit code
+	//   --frames <n>                   how many frames --check and --save-view draw first (90): for progressive ones
 	int run(const LabConfig &config, int argc = 0, char **argv = nullptr);
 
 	struct State;

@@ -54,6 +54,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <deque>
 #include <exception>
@@ -238,7 +239,8 @@ struct State {
 	double last_save_check = 0;
 
 	bool check = false, check_asked = false;
-	std::string save_view; // --save-view: the picture as a PNG after 90 frames
+	std::string save_view; // --save-view: the picture as a PNG after `frames` frames
+	int frames = 90;       // --frames: how many --check and --save-view draw first
 	std::vector<std::string> start_models;
 	std::string start_environment;
 	std::string start_technique, start_compare;
@@ -514,6 +516,7 @@ int run_lab(State<B> &s, typename B::Owner *owner, std::vector<std::unique_ptr<t
 		else if (arg == "--check") s.check = true;
 		else if (arg == "--log" && more) log_path = argv[++i];
 		else if (arg == "--save-view" && more) s.save_view = argv[++i];
+		else if (arg == "--frames" && more) s.frames = std::clamp(std::atoi(argv[++i]), 1, 1000000);
 		else if (arg == "--screenshot") screenshot = true;
 		else if (arg == "--scene" && more) s.empty_scene = std::string(argv[++i]) == "empty";
 		else if (arg == "--camera" && more) {
@@ -1386,7 +1389,7 @@ int run_lab(State<B> &s, typename B::Owner *owner, std::vector<std::unique_ptr<t
 		return h;
 	};
 
-	// --check: once 90 frames are drawn, the picture is read back (now, or when the GPU has drawn it) and judged.
+	// --check: once `frames` frames are drawn, the picture is read back (now, or when the GPU has drawn it) and judged.
 	const auto judge = [&s](int w, int h, const std::vector<unsigned char> &pixels) {
 		if (!s.save_view.empty()) {
 			const bool saved = write_png_bottom_up(utf8_path(s.save_view), w, h, pixels.data());
@@ -1456,7 +1459,7 @@ int run_lab(State<B> &s, typename B::Owner *owner, std::vector<std::unique_ptr<t
 			s.last_save_check = ImGui::GetTime();
 			save_settings(false);
 		}
-		if ((s.check || !s.save_view.empty()) && s.frame_index >= 90 && !s.check_asked) {
+		if ((s.check || !s.save_view.empty()) && s.frame_index >= s.frames && !s.check_asked) {
 			s.check_asked = true;
 			s.gpu.read_display(0, judge);
 		}

@@ -58,6 +58,21 @@ if(RIMGUI_HAS_VULKAN)
 	renderlab_vk_check(environment_deferred --technique "Deferred + SSAO" --environment "${_fixtures}/test_sky.hdr")
 	renderlab_vk_check(fixed_resolution --technique "Deferred + SSAO" --resolution 1920x1080 --show "SSAO blurred")
 	renderlab_vk_check(inspect_output --technique "Sky and environment" --show "Output (HDR)")
+	# Ray tracing (on GPUs without it the techniques say so and draw the sky, which still passes).
+	renderlab_vk_check(hybrid_rt --technique "Hybrid RT shadows + AO")
+	renderlab_vk_check(hybrid_rt_environment --technique "Hybrid RT shadows + AO" --environment "${_fixtures}/test_sky.hdr")
+	renderlab_vk_check(path_traced --technique "Path-traced reference")
+	renderlab_vk_check(path_traced_environment --technique "Path-traced reference" --environment "${_fixtures}/test_sky.hdr")
+	renderlab_vk_check(path_traced_vs_raster --technique "Path-traced reference" --compare "Forward PBR" --difference)
+	# The path tracer converges: its picture after 256 frames is close to the one after 1024.
+	set(_pt "${CMAKE_CURRENT_BINARY_DIR}/convergence")
+	foreach(_frames 256 1024)
+		add_test(NAME convergence.path_traced.${_frames} COMMAND RenderLabVulkan --hidden --validation --check --no-settings --resolution 1280x720
+			--technique "Path-traced reference" --frames ${_frames} --save-view "${_pt}.${_frames}.png")
+		set_tests_properties(convergence.path_traced.${_frames} PROPERTIES FIXTURES_SETUP convergence TIMEOUT 300)
+	endforeach()
+	add_test(NAME convergence.path_traced COMMAND rimgui_rt_tests --compare "${_pt}.256.png" "${_pt}.1024.png" 0.75 0.005)
+	set_tests_properties(convergence.path_traced PROPERTIES FIXTURES_REQUIRED convergence)
 
 	# The two labs agree: the same technique, view and size drawn by RenderLab (OpenGL) and RenderLabVulkan, compared
 	# pixel by pixel. Different techniques differ by over a level on average; the same one by far less.

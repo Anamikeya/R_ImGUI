@@ -1,7 +1,7 @@
 #version 460
 // The deferred lighting pass, as a compute shader writing the output: every pixel lit from the G-buffer with the sun
-// and image-based lighting, ambient occlusion from both the material and SSAO. Pixels with nothing in them are left
-// black for the sky pass.
+// (shadowed by an image when given: ray-traced shadows) and image-based lighting, ambient occlusion from both the
+// material and SSAO (or ray-traced AO). Pixels with nothing in them are left black for the sky pass.
 #include "rimgui_vk_lighting.glsl"
 layout(local_size_x = 8, local_size_y = 8) in;
 layout(push_constant, scalar) uniform Constants {
@@ -10,6 +10,8 @@ layout(push_constant, scalar) uniform Constants {
     uint target;                              // The output's colour, as a storage image
     ivec2 size;
     int use_ao, ao_only;
+    uint shadow;    // A sun visibility image (ray-traced shadows), sampled
+    int use_shadow; // 0: the sun is unshadowed
 } pc;
 
 void main()
@@ -38,5 +40,6 @@ void main()
     vec3 diffuse, specular;
     brdf(n, v, f.sun_direction, albedo, roughness, metallic, diffuse, specular);
     vec3 ambient = ambient_light(f, n, v, albedo, roughness, metallic, ao * eo.a);
-    imageStore(u_images[pc.target], pixel, vec4((diffuse + specular) * f.sun_color + ambient + eo.rgb, 1.0));
+    float sun = pc.use_shadow == 1 ? fetch_2d(pc.shadow, pixel).r : 1.0;
+    imageStore(u_images[pc.target], pixel, vec4((diffuse + specular) * f.sun_color * sun + ambient + eo.rgb, 1.0));
 }

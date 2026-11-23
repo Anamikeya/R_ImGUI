@@ -1,0 +1,12 @@
+#version 460
+// Masked and blended materials (opaque ones never come here): a hit through a cut-out, or through glass by chance, is
+// ignored.
+#include "pt_common.glsl"
+hitAttributeEXT vec2 bary;
+void main()
+{
+    uint rng = seed_for(gl_LaunchIDEXT.xy, uint(gl_PrimitiveID) * 31u + floatBitsToUint(gl_HitTEXT) + uint(pc.frame.accumulation) * 7919u);
+    if (!alpha_passes(pc.frame, gl_InstanceCustomIndexEXT, gl_PrimitiveID, bary, random01(rng))) {
+        ignoreIntersectionEXT;
+    }
+}

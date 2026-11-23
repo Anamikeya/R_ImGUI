@@ -2,6 +2,7 @@
 //   rimgui_vk_tests --vulkan --hidden --validation
 // Every check reads results back from the GPU. Any validation message is a failure too.
 #include <rimgui/app.h>
+#include <rimgui/rt/vk/accel.h>
 #include <rimgui/rt/vk/environment.h>
 #include <rimgui/rt/vk/gpu.h>
 #include <rimgui/rt/vk/shader.h>
@@ -424,6 +425,70 @@ void test_environment(ShaderLibrary &shaders, const fs::path &folder)
 	check(!env.load(folder / "missing.hdr", shaders, &error) && env.loaded(), "a missing file is refused and the last environment stays");
 }
 
+// Acceleration structures against answers known exactly: a ray from (0, 0, 5) down -z hits a unit cube at the origin
+// at t = 4.5 and finds its object; hidden, the ray misses; moved to z = 2, the top level is rebuilt and t = 2.5.
+void test_acceleration_structures(ShaderLibrary &shaders, const fs::path &folder)
+{
+	if (!AccelerationStructures::supported() || !rimgui::vulkan::context()->features.ray_query) {
+		std::printf("  (no ray queries on this GPU: not tested)\n");
+		return;
+	}
+	write_text(folder / "query.comp", R"(#version 460
+#extension GL_EXT_ray_query : require
+#define RIMGUI_RAY_QUERY
+#include "rimgui_vk.glsl"
+layout(local_size_x = 1) in;
+layout(push_constant, scalar) uniform Constants { uint image; } pc;
+void main() {
+    rayQueryEXT q;
+    rayQueryInitializeEXT(q, u_scene, gl_RayFlagsNoneEXT, 0xFF, vec3(0.0, 0.0, 5.0), 0.0, vec3(0.0, 0.0, -1.0), 100.0);
+    while (rayQueryProceedEXT(q)) {}
+    bool hit = rayQueryGetIntersectionTypeEXT(q, true) != gl_RayQueryCommittedIntersectionNoneEXT;
+    float t = hit ? rayQueryGetIntersectionTEXT(q, true) : -1.0;
+    float object = hit ? float(rayQueryGetIntersectionInstanceCustomIndexEXT(q, true)) : -1.0;
+    imageStore(u_images[pc.image], ivec2(0, 0), vec4(t, object, 0.0, 1.0));
+}
+)");
+	Pipeline &p = shaders.compute("ray query", "query.comp");
+	check(p.ready(), "a ray query compute shader builds (" + p.error() + ")");
+	if (!p.ready()) return;
+	ImageDesc d;
+	d.width = d.height = 1;
+	d.format = VK_FORMAT_R32G32B32A32_SFLOAT;
+	d.storage = true;
+	auto out = Image::create(d);
+	const auto trace = [&] {
+		rimgui::vulkan::submit_now([&](VkCommandBuffer cb) {
+			p.bind(cb, out->storage_index());
+			vkCmdDispatch(cb, 1, 1, 1);
+		});
+		return read_image(*out);
+	};
+	Scene scene;
+	Object floor_far, cube;
+	floor_far.mesh = std::make_shared<Mesh>(rimgui::rt::make_plane(), "plane");
+	floor_far.position = {0, -10, 0};
+	cube.mesh = std::make_shared<Mesh>(rimgui::rt::make_cube(), "cube");
+	scene.objects = {floor_far, cube};
+	AccelerationStructures accel;
+	check(accel.update(scene), "the acceleration structures build");
+	check(accel.bottom_levels() == 2 && accel.instances() == 2, "one bottom level per mesh, one instance per visible object");
+	auto hit = trace();
+	check(near(hit[0], 4.5f, 1e-4f) && near(hit[1], 1, 1e-6f), "the ray hits the cube's face at t = 4.5 and finds object 1");
+	const int builds = accel.builds();
+	accel.update(scene);
+	check(accel.builds() == builds, "an unchanged scene is not rebuilt");
+	scene.objects[1].visible = false;
+	accel.update(scene);
+	hit = trace();
+	check(hit[0] < 0, "a hidden object is not hit");
+	scene.objects[1].visible = true;
+	scene.objects[1].position = {0, 0, 2};
+	accel.update(scene);
+	hit = trace();
+	check(near(hit[0], 2.5f, 1e-4f), "a moved object is hit where it now is (t = 2.5)");
+}
+
 } // namespace
 
 int main(int argc, char **argv)
@@ -469,6 +534,7 @@ int main(int argc, char **argv)
 			{"ray tracing pipeline", [&] { test_ray_tracing(*shaders, folder); }},
 			{"mesh shaders", [&] { test_mesh_shaders(*shaders, folder); }},
 			{"image-based lighting", [&] { test_environment(*shaders, folder); }},
+			{"acceleration structures", [&] { test_acceleration_structures(*shaders, folder); }},
 		};
 		for (const auto &[name, run] : tests) {
 			current = name;
