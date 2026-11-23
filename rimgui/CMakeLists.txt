@@ -16,6 +16,12 @@ add_library(rimgui STATIC
 )
 target_include_directories(rimgui PUBLIC "${CMAKE_CURRENT_LIST_DIR}/include")
 target_link_libraries(rimgui PUBLIC rimgui_dear_imgui)
+if(RIMGUI_HAS_VULKAN)
+	# The application shell on Vulkan as well: AppConfig::backend, or --vulkan on the command line.
+	target_sources(rimgui PRIVATE include/rimgui/vulkan.h src/app_vulkan.cpp)
+	target_link_libraries(rimgui PUBLIC rimgui_imgui_vulkan)
+	target_compile_definitions(rimgui PUBLIC RIMGUI_HAS_VULKAN=1)
+endif()
 target_compile_features(rimgui PUBLIC cxx_std_17)
 if(MSVC)
 	target_compile_options(rimgui PRIVATE /W4 /permissive- /utf-8)

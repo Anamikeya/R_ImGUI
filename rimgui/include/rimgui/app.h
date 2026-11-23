@@ -22,10 +22,17 @@ struct DockAreas {
 	ImGuiID top = 0, left = 0, right = 0, bottom = 0, bottom_right = 0, center = 0;
 };
 
+// The graphics API the window draws with. Vulkan needs the shell built with the Vulkan SDK (RIMGUI_HAS_VULKAN).
+enum class Backend { OpenGL, Vulkan };
+
 struct AppConfig {
 	std::string title = "R_ImGUI Application";
 	int width = 1440, height = 900;  // At 100% scale; grown with the monitor's scale and kept within its work area.
 	std::string layout_file = "imgui.ini"; // Where docking and window positions are kept; empty keeps none.
+	// OpenGL or Vulkan; --opengl or --vulkan on the command line overrides it.
+	Backend backend = Backend::OpenGL;
+	// Vulkan: the validation layers on (also --validation). Their messages go to rimgui::vulkan::on_message.
+	bool vulkan_validation = false;
 	// The OpenGL context asked for; 3.3 core is used when the driver cannot give it.
 	int gl_major = 3, gl_minor = 3;
 	// Called once OpenGL and ImGui are ready, before the first frame; and once after the last, while OpenGL is still
@@ -45,7 +52,12 @@ struct AppConfig {
 //   --screenshot <file.ppm>  saves the window after its 60th frame, then quits (for docs and tests)
 //   --screenshot-frame <n>   after the nth frame instead
 //   --hidden                 never shows the window (automated checks; drawing to framebuffers still works)
+//   --opengl, --vulkan       the graphics API, over AppConfig::backend
+//   --validation             Vulkan's validation layers
 int run(const AppConfig &config, const std::function<void()> &frame, int argc = 0, char **argv = nullptr);
+
+// The graphics API the running shell draws with.
+Backend backend();
 
 // Ends the loop after this frame; run() returns `exit_code` (a screenshot that failed wins over 0).
 void quit(int exit_code = 0);
