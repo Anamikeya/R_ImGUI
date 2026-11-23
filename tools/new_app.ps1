@@ -7,7 +7,10 @@ Copies a template and the rimgui libraries into a new folder, and renames the te
 The new folder stands on its own: it builds without this repository.
   -Template starter     a tool with the editor's look (the default)
   -Template renderlab   a realtime rendering research application: techniques, hot-reloaded shaders, A/B
-                        comparison, GPU timings, a texture inspector
+                        comparison, GPU timings, a texture inspector (OpenGL)
+  -Template renderlab-vulkan
+                        the same on Vulkan, with a path-traced reference, ray-traced shadows and AO, mesh shaders
+                        and HLSL beside GLSL (needs the Vulkan SDK)
 
 .EXAMPLE
 .\tools\new_app.ps1 -Name AssetViewer -Destination D:\Projects
@@ -16,13 +19,17 @@ Creates D:\Projects\AssetViewer, with AssetViewer.exe as its program.
 .EXAMPLE
 .\tools\new_app.ps1 -Name ShadowLab -Template renderlab -Destination D:\Research -Build
 A renderer research application, ShadowLab.exe, configured and built.
+
+.EXAMPLE
+.\tools\new_app.ps1 -Name LightLab -Template renderlab-vulkan -Destination D:\Research -Build
+The same on Vulkan, LightLab.exe.
 #>
 param(
     [Parameter(Mandatory = $true)]
     [ValidatePattern('^[A-Za-z][A-Za-z0-9_]{0,63}$')]
     [string]$Name,
     [string]$Destination = (Get-Location).Path,
-    [ValidateSet('starter', 'renderlab')]
+    [ValidateSet('starter', 'renderlab', 'renderlab-vulkan')]
     [string]$Template = 'starter',
     [switch]$Build
 )
@@ -30,7 +37,14 @@ $ErrorActionPreference = 'Stop'
 
 $repo = Split-Path -Parent $PSScriptRoot
 $source = Join-Path $repo "templates\$Template"
-$original = if ($Template -eq 'renderlab') { 'RenderLab' } else { 'StarterApp' }
+$original = switch ($Template) {
+    'renderlab' { 'RenderLab' }
+    'renderlab-vulkan' { 'RenderLabVulkan' }
+    default { 'StarterApp' }
+}
+if ($Template -eq 'renderlab-vulkan' -and -not $env:VULKAN_SDK) {
+    Write-Warning 'VULKAN_SDK is not set: install the Vulkan SDK (https://vulkan.lunarg.com) before building this one.'
+}
 $target = Join-Path $Destination $Name
 if (Test-Path $target) {
     throw "$target already exists. Choose another name or folder."
@@ -65,6 +79,13 @@ cmake --build build --config Release
 The program is ``build\Release\$Name.exe`` (or ``build\$Name.exe`` with a single-configuration generator).
 Its code is in ``src\main.cpp``; the look and the research kit are in ``rimgui\``.
 "@
+if ($Template -eq 'renderlab-vulkan') {
+    $readme += @"
+
+It draws with Vulkan 1.3 and needs the [Vulkan SDK](https://vulkan.lunarg.com) to build (its installer sets
+``VULKAN_SDK``). ``$Name --check --validation`` runs it under the validation layers, failing on any message from them.
+"@
+}
 [IO.File]::WriteAllText((Join-Path $target 'README.md'), $readme, $utf8)
 
 Write-Host "Created $target"

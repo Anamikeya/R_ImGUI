@@ -1,6 +1,7 @@
-# RenderLab on Vulkan: the research application with techniques written in Vulkan (rimgui/rt/vk/lab.h). Needs the
-# Vulkan SDK (VULKAN_SDK set by its installer). tools/new_app.ps1 -Template renderlab-vulkan copies this folder and
-# renames RenderLabVulkan. Shaders are in shaders/; while the program runs, saving one rebuilds it.
+# RenderLabVulkan: RenderLab on Vulkan, the research application with techniques written in Vulkan
+# (rimgui/rt/vk/lab.h). Needs the Vulkan SDK (VULKAN_SDK set by its installer). tools/new_app.ps1 -Template
+# renderlab-vulkan copies this folder and renames RenderLabVulkan. Shaders are in shaders/; while the program runs,
+# saving one rebuilds it.
 #   cmake -B build
 #   cmake --build build --config Release
 cmake_minimum_required(VERSION 3.24)

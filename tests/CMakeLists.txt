@@ -82,6 +82,17 @@ if(RIMGUI_HAS_VULKAN)
 			"${CMAKE_CURRENT_BINARY_DIR}/meshlets.${_view}.Mesh_shaders__meshlets_.png" 0.05 0.0005)
 		set_tests_properties(meshlets.${_view} PROPERTIES FIXTURES_REQUIRED meshlets_${_view})
 	endforeach()
+	# HLSL and GLSL agree: Forward PBR's shaders in each language draw the same picture.
+	renderlab_vk_check(forward_pbr_hlsl --technique "Forward PBR (HLSL)")
+	foreach(_technique "Forward PBR" "Forward PBR (HLSL)")
+		string(MAKE_C_IDENTIFIER "${_technique}" _id)
+		add_test(NAME languages.${_id} COMMAND RenderLabVulkan --hidden --validation --check --no-settings --resolution 1280x720
+			--technique "${_technique}" --environment "${_fixtures}/test_sky.hdr" --save-view "${CMAKE_CURRENT_BINARY_DIR}/languages.${_id}.png")
+		set_tests_properties(languages.${_id} PROPERTIES FIXTURES_SETUP languages FIXTURES_REQUIRED renderlab_files TIMEOUT 120)
+	endforeach()
+	add_test(NAME languages COMMAND rimgui_rt_tests --compare "${CMAKE_CURRENT_BINARY_DIR}/languages.Forward_PBR.png"
+		"${CMAKE_CURRENT_BINARY_DIR}/languages.Forward_PBR__HLSL_.png" 0.1 0.0005)
+	set_tests_properties(languages PROPERTIES FIXTURES_REQUIRED languages)
 	# The path tracer converges: its picture after 256 frames is close to the one after 1024.
 	set(_pt "${CMAKE_CURRENT_BINARY_DIR}/convergence")
 	foreach(_frames 256 1024)

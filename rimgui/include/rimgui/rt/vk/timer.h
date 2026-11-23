@@ -37,6 +37,7 @@ public:
 		VkCommandBuffer cb_;
 		std::size_t pass_;
 		bool timed_ = false;
+		uint32_t query_ = 0;
 		std::chrono::steady_clock::time_point start_;
 	};
 
@@ -62,6 +63,7 @@ private:
 	std::vector<Sum> sums_;
 	std::vector<PassTime> stats_;
 	uint32_t current_ = 0;
+	bool started_ = false;
 	double period_ns_ = 1;
 	std::chrono::steady_clock::time_point window_ = std::chrono::steady_clock::now();
 };

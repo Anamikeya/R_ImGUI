@@ -98,7 +98,7 @@ public:
 };
 
 struct LabConfig {
-	std::string title = "RenderLab Vulkan";
+	std::string title = "RenderLabVulkan";
 	std::vector<std::filesystem::path> shader_folders;
 	std::function<void(Scene &)> make_scene;
 	std::filesystem::path capture_folder;

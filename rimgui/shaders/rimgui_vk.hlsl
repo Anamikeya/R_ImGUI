@@ -19,6 +19,14 @@ float4 sample_2d(uint index, float2 uv) { return u_textures[NonUniformResourceIn
 float4 sample_2d_lod(uint index, float2 uv, float lod) { return u_textures[NonUniformResourceIndex(index)].SampleLevel(u_samplers[SAMPLER_LINEAR_CLAMP], uv, lod); }
 float4 sample_material(uint index, float2 uv) { return u_textures[NonUniformResourceIndex(index)].Sample(u_samplers[SAMPLER_LINEAR_REPEAT], uv); }
 float4 sample_cube(uint index, float3 dir, float lod) { return u_cubes[NonUniformResourceIndex(index)].SampleLevel(u_samplers[SAMPLER_LINEAR_CLAMP], dir, lod); }
+float4 sample_nearest(uint index, float2 uv) { return u_textures[NonUniformResourceIndex(index)].SampleLevel(u_samplers[SAMPLER_NEAREST_CLAMP], uv, 0); }
+float4 fetch_2d(uint index, int2 texel) { return u_textures[NonUniformResourceIndex(index)].Load(int3(texel, 0)); }
+uint2 size_2d(uint index)
+{
+    uint w, h;
+    u_textures[NonUniformResourceIndex(index)].GetDimensions(w, h);
+    return uint2(w, h);
+}
 
 // OpenGL's clip space, as the kit's matrices give it, into Vulkan's (depth 0..1): as rimgui_vk_clip in GLSL.
 float4 rimgui_vk_clip(float4 p) { return float4(p.xy, (p.z + p.w) * 0.5, p.w); }

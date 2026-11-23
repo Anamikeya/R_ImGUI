@@ -7,16 +7,20 @@ for realtime rendering research built on it.
 |---|---|
 | **starter** | A tool with the editor's look: the theme, fonts, toolbar strip, property panels and buttons |
 | **renderlab** | A renderer research application: write techniques, compare them side by side, time every pass, look at every buffer |
+| **renderlab-vulkan** | The same application on Vulkan 1.3, adding a path-traced reference, ray-traced shadows and AO, mesh shaders, and HLSL beside GLSL |
 
 ![StarterApp, made from the starter template](docs/starter_app.png)
 
 ![RenderLab comparing forward PBR against deferred shading with SSAO, lit by an HDR environment](docs/renderlab_compare.png)
+
+![RenderLabVulkan: the path-traced reference after 1,500 paths a pixel, split against Forward PBR](docs/renderlab_vulkan.png)
 
 ## Make a new application
 
 ```powershell
 .\tools\new_app.ps1 -Name MyTool -Destination D:\Projects
 .\tools\new_app.ps1 -Name ShadowLab -Template renderlab -Destination D:\Research
+.\tools\new_app.ps1 -Name LightLab -Template renderlab-vulkan -Destination D:\Research
 ```
 
 Each creates a folder holding its own copy of the libraries (`rimgui\`), which builds without this repository:
@@ -29,6 +33,8 @@ cmake --build build --config Release
 
 Add `-Build` to configure and build straight away. You need CMake 3.24 or later, a C++20 compiler (Visual Studio 2022 on
 Windows) and OpenGL 3.3; RenderLab asks for OpenGL 4.3 (for compute shaders) and works with 3.3 without them.
+RenderLabVulkan needs the [Vulkan SDK](https://vulkan.lunarg.com) (1.3.236 or later; its installer sets `VULKAN_SDK`)
+and a GPU with Vulkan 1.3.
 
 ## The look (`rimgui`)
 
@@ -39,7 +45,7 @@ Windows) and OpenGL 3.3; RenderLab asks for OpenGL 4.3 (for compute shaders) and
 | **Scale** | Sizes and text follow the monitor's scale; `rimgui::px(12)` is 12 px at 100%, whatever the scale now |
 | **Layout** | A dock space split like the editor's: a toolbar strip on top, a list on the left, details on the right, a log below, the main view in the middle |
 | **Widgets** | `begin_toolbar` and `divider`, `button` in Go, Stop and Accent tones, `section`, `begin_properties` and `property` rows, `chip` filters, `row_toggle`, `hint`, `text_good`, `text_warning` and `text_error`, `overlay_caption` |
-| **App shell** | `rimgui::run(config, frame)`: the window, OpenGL, ImGui with docking, the theme and fonts, `on_start` and `on_exit` for GPU resources, and `--screenshot <file.ppm>` for docs and tests |
+| **App shell** | `rimgui::run(config, frame)`: the window, OpenGL or Vulkan (`--vulkan`, `--validation`; `rimgui/vulkan.h`), ImGui with docking, the theme and fonts, `on_start` and `on_exit` for GPU resources, and `--screenshot <file.ppm>` for docs and tests |
 
 ```cpp
 ImGui::Begin("Details");
@@ -130,6 +136,63 @@ RenderLab.exe --check --hidden --log check.log     exit 0: drew a picture with n
 ```
 
 Screenshots and checks start from the defaults and do not save settings, so they come out the same every time.
+`--save-view out.png` saves just the view's picture after `--frames <n>` frames (90 by default).
+
+## RenderLab on Vulkan (`rimgui_rt_vk`) and RenderLabVulkan
+
+The same application (both labs share one core for the panels, settings, command line, captures and checks), with
+techniques written in Vulkan 1.3. A technique records into `frame.cb`, the frame's command buffer:
+
+```cpp
+class MyPass : public rimgui::rt::vk::Technique {
+    std::string name() const override { return "My pass"; }
+    void render(rimgui::rt::vk::Frame &frame) override {
+        auto timed = frame.scope("Main");
+        rimgui::rt::vk::GraphicsDesc d;
+        d.vertex = "mesh.vert";                                 // or d.task / d.mesh, or "file.hlsl:Entry"
+        d.fragment = "my_pass.frag";
+        d.colors = frame.output->color_formats();
+        d.depth = frame.output->depth_format();
+        auto &p = frame.shaders->graphics("my pass", d);
+        frame.begin_output();
+        frame.scene->draw(frame.cb, p, rimgui::rt::DrawFilter::Opaque, frame.camera_position, frame.constants());
+        frame.draw_sky();
+        frame.end_output();
+    }
+};
+```
+
+What the Vulkan kit gives a technique:
+
+- **Bindless resources:** every texture, cubemap and storage image in one descriptor set, picked by index in shaders
+  (`rimgui_vk.glsl`, `rimgui_vk.hlsl`); buffers by device address; one pipeline layout with 256 bytes of push
+  constants. Images stay in `VK_IMAGE_LAYOUT_GENERAL`; `barrier(cb)` between passes.
+- **The scene on the GPU:** meshes in buffers read by vertex pulling, `FrameData` (camera, sun, sky, environment, every
+  object) and `ObjectData` (transform, material, mesh) read by address (`rimgui_vk_scene.glsl`), with the same material
+  and lighting code as the OpenGL kit (`rimgui_vk_material.glsl`, `rimgui_vk_lighting.glsl`, and their `.hlsl` twins).
+- **Shaders:** GLSL through shaderc and HLSL through DXC, rebuilt when saved, `#include`, errors at their file and line,
+  the last good pipeline kept; graphics, mesh, compute and ray tracing pipelines (with the shader binding table).
+- **Ray tracing:** `frame.prepare_ray_tracing()` keeps the scene's acceleration structures current (one bottom level
+  per mesh; the top level rebuilt only when the geometry changes); `rimgui_vk_raytracing.glsl` gives the surface at a
+  hit, alpha tests for masked and blended materials, random numbers and GGX sampling.
+- **Mesh shaders:** meshes cut into meshlets (`rimgui/rt/meshlets.h`) with bounding spheres and normal cones.
+- **Image-based lighting** built by compute shaders, **GPU timestamps** per pass, and `--validation`, under which any
+  message from the validation layers is logged as an error, so `--check --validation` fails on misuse of the API.
+
+RenderLabVulkan's techniques:
+
+| Technique | What it shows |
+|---|---|
+| **Forward PBR** | The OpenGL lab's Forward PBR in Vulkan; the two labs' pictures agree within 0.05 levels |
+| **Forward PBR (HLSL)** | The same with its shaders in HLSL through DXC: the same picture as the GLSL one |
+| **Forward Blinn-Phong** | As in the OpenGL lab |
+| **Deferred + SSAO** | A G-buffer, then SSAO, a blur and the lighting as compute passes |
+| **Hybrid RT shadows + AO** | The G-buffer with soft sun shadows and ambient occlusion traced by ray queries, averaged while nothing moves |
+| **Path-traced reference** | An RT pipeline: next-event estimation to the sun, sky and environment light, GGX and Lambert sampling, Russian roulette, accumulation; the ground truth to compare the others with |
+| **Mesh shaders (meshlets)** | Forward PBR through a task shader that culls meshlets outside the view or facing away, and a mesh shader; Timings shows how many were culled |
+| **Sky and environment** | The background alone |
+
+On a GPU without ray tracing or mesh shaders those techniques say so and draw only the sky; the others work.
 
 ## Tests
 
@@ -137,7 +200,7 @@ Screenshots and checks start from the defaults and do not save settings, so they
 ctest --test-dir build
 ```
 
-- `rimgui_rt_tests` holds the kit to answers known exactly (61 checks):
+- `rimgui_rt_tests` holds the kit to answers known exactly (68 checks):
   - a sky of one brightness gives that brightness back from the irradiance and every prefiltered level;
   - the BRDF table gives F0 untouched for a smooth surface seen head-on;
   - a sky with a blinding sun gives no infinity or NaN;
@@ -146,12 +209,24 @@ ctest --test-dir build
   - glTF factors, maps, alpha, node transforms and bounds are read;
   - a Draco file is refused by name;
   - settings come back as saved;
-  - a compute shader writes every pixel.
+  - a compute shader writes every pixel;
+  - every triangle lands in exactly one meshlet, and a floor's normal cones cull it from below only.
 - `renderlab.*` runs RenderLab with `--check` in a hidden window for every technique, both compare modes, with an HDR environment, and at a fixed resolution.
+- With the Vulkan SDK, all under the validation layers (any message from them fails the test):
+  - `rimgui_vk_tests` (41 checks): buffers, GLSL and HLSL compute, errors in included files and reloads, graphics,
+    textures and mips, ray tracing and mesh shader pipelines, the IBL maps against known answers, a ray query hitting a
+    cube at the exact distance (and missing it hidden, finding it moved), and GPU timestamps;
+  - `renderlab_vk.*`: RenderLabVulkan's `--check` for every technique, both compare modes, with an environment;
+  - `agreement.*`: the same technique drawn by both labs, compared pixel by pixel;
+  - `languages`, `meshlets.*`: HLSL against GLSL, and mesh shaders against Forward PBR (also in a close-up where most
+    meshlets are culled): the same pictures;
+  - `convergence.path_traced`: the path tracer after 256 frames is close to the one after 1024.
 
 ## Limits
 
-- **OpenGL 3.3 to 4.3 only.** Vulkan or Direct3D 12 (hardware ray tracing, mesh shaders) would need another backend for the window, ImGui and the kit.
+- **OpenGL and Vulkan; no Direct3D 12 or Metal.** The Vulkan lab needs Vulkan 1.3; ray tracing and mesh shaders need GPUs that have them.
+- **The path tracer** samples the sun directly and finds the sky and environment by its bounces (no importance sampling of the environment image), so small bright spots in an HDR image converge slowly. Rays read materials at the top mip level.
+- **Ray tracing scenes** rebuild their top level when the geometry changes, waiting for the GPU first: dragging an object stalls briefly each frame.
 - **Compressed glTF** (Draco, meshopt) and **WebP or Basis textures** are refused with a message: decompress them first.
 - **glTF extensions beyond metal-roughness** (transmission, clearcoat, sheen, texture transforms) are named in the Log and left out; skins and animations draw in the bind pose.
 - Built and tested on Windows (Visual Studio 2022, an RTX 3080). The code avoids Windows-only calls except for finding the system fonts, but has not been built on Linux or macOS.
@@ -159,20 +234,26 @@ ctest --test-dir build
 ## What is in this repository
 
 ```text
-rimgui/                  the libraries: rimgui (the look) and rimgui_rt (the research kit), with the kit's shaders
+rimgui/                  the libraries: rimgui (the look and the shell), rimgui_rt_core (no graphics API), rimgui_rt
+                         (OpenGL kit), rimgui_rt_vk (Vulkan kit), with the kits' shaders
 templates/starter/       StarterApp
 templates/renderlab/     RenderLab: three techniques and their shaders
-tests/                   the kit's tests and RenderLab's end-to-end checks
+templates/renderlab-vulkan/  RenderLabVulkan: eight techniques and their shaders
+tests/                   the kits' tests and both labs' end-to-end checks
 tools/new_app.ps1        makes a new application from a template
+docs/VULKAN_PLAN.md      how the Vulkan lab was built, slice by slice
 ```
 
-Building here builds both libraries, both templates and the tests (`build\bin\StarterApp.exe`, `build\bin\RenderLab.exe`).
+Building here builds the libraries, the templates and the tests (`build\bin\StarterApp.exe`, `build\bin\RenderLab.exe`,
+and with the Vulkan SDK `build\bin\renderlab-vulkan\RenderLabVulkan.exe`). Without the SDK the Vulkan parts are left
+out and everything else builds (`-DRIMGUI_VULKAN=OFF` leaves them out on purpose).
 
 ## Dependencies
 
 Dear ImGui (docking branch) and GLFW, fetched on the first configure at pinned commits, the ones IdlyEngine's editor
 uses. The OpenGL loader (glad) comes with GLFW. stb_image, stb_image_write and cgltf are kept in
-`rimgui/third_party` (see its README for versions and licences). To build without a network, point at local copies of
+`rimgui/third_party` (see its README for versions and licences). The Vulkan parts use the Vulkan SDK's Volk, VMA,
+shaderc and DXC (`dxcompiler.dll` is copied beside each Vulkan program). To build without a network, point at local copies of
 ImGui and GLFW:
 
 ```powershell

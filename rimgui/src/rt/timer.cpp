@@ -77,7 +77,16 @@ void GpuTimers::end_frame()
 	}
 	++frame_;
 	const auto now = std::chrono::steady_clock::now();
-	if (now - window_start_ >= std::chrono::milliseconds(500)) {
+	if (frame_ == 1) {
+		window_start_ = now; // The first window starts with the first frame, not with the setup before it.
+	}
+	// GPU times arrive a frame or two late: a window closes once they have (or after two seconds without any).
+	bool any_gpu = false;
+	for (const Pass &p : passes_) {
+		any_gpu = any_gpu || p.gpu_count > 0;
+	}
+	const auto open_for = now - window_start_;
+	if (open_for >= std::chrono::milliseconds(500) && (any_gpu || passes_.empty() || open_for >= std::chrono::seconds(2))) {
 		window_start_ = now;
 		for (std::size_t i = 0; i < passes_.size(); ++i) {
 			Pass &p = passes_[i];

@@ -82,3 +82,17 @@ templates/renderlab-vulkan  NEW  Vulkan RenderLab with the techniques below
 | Two labs drifting apart | `LabCore` holds all the UI, settings and checks once; backends only draw |
 | A GPU without ray tracing or mesh shaders | Those techniques say so in the Technique panel and draw nothing; the rest works |
 | Machines without the Vulkan SDK | Building the Vulkan lab needs it, and CMake says so plainly; the OpenGL lab builds without it |
+
+## Status
+
+All slices are done (November 2026). Where the result differs from the plan:
+
+- The core is `rimgui_rt_core` plus `rimgui/src/rt/lab_core.inl` (the lab over a backend, as a template) rather than a
+  `rimgui/core` folder; the OpenGL lab's public API did not change.
+- Barriers are whole-memory (`barrier(cb)`) between passes, with every image in `VK_IMAGE_LAYOUT_GENERAL`, rather than
+  barriers by intent.
+- The path tracer samples the sun directly; the sky and the environment are reached by its bounces, not by importance
+  sampling the environment image.
+- `--save-view`, `--frames` and `rimgui_rt_tests --compare` were added to check the labs against each other: the two
+  labs' Forward PBR, Blinn-Phong and Deferred + SSAO agree within 0.05 levels on average, HLSL and GLSL Forward PBR and
+  the mesh-shader Forward PBR give the same pictures, and the path tracer after 256 frames is within 0.5 levels of 1024.

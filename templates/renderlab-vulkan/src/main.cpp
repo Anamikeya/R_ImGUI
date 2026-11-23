@@ -1,8 +1,9 @@
-// RenderLab on Vulkan: techniques written in Vulkan through the research kit (rimgui/rt/vk/lab.h), in the same
-// application as the OpenGL RenderLab, so the two can be checked against each other.
+// RenderLabVulkan: RenderLab on Vulkan. Techniques written in Vulkan through the research kit (rimgui/rt/vk/lab.h),
+// in the same application as the OpenGL RenderLab, so the two can be checked against each other.
 //
 //   Forward PBR           GGX with height-correlated Smith visibility and Schlick Fresnel, a sun shadow map with PCF,
 //                         image-based lighting with multiple scattering compensation; alpha mask and blend
+//   Forward PBR (HLSL)    the same with its shaders in HLSL through DXC: the two languages side by side
 //   Forward Blinn-Phong   Lambert diffuse and a Blinn-Phong highlight
 //   Deferred + SSAO       a G-buffer, SSAO, a blur and the lighting as compute passes, blended objects forward on top
 //   Hybrid RT shadows + AO  the same G-buffer with the sun's shadows and ambient occlusion traced by ray queries
@@ -147,6 +148,35 @@ protected:
 	int view_ = 0, shadow_size_ = 2048, pcf_ = 1;
 	bool shadows_ = true;
 	float bias_ = 0.0015f;
+};
+
+// ---- Forward PBR in HLSL -------------------------------------------------------------------------------------------
+
+class ForwardPbrHlsl : public ForwardPbr {
+public:
+	std::string name() const override { return "Forward PBR (HLSL)"; }
+	std::string description() const override
+	{
+		return "Forward PBR with its shaders in HLSL (shaders/pbr.hlsl, compiled by DXC) instead of GLSL: the same "
+			   "push constants, frame and object data. Compare it with Forward PBR: the difference should be black.";
+	}
+	void render(Frame &frame) override
+	{
+		VkCommandBuffer cb = frame.cb;
+		const Constants c = prepare_constants(frame);
+		auto timed = frame.scope("Forward (HLSL)");
+		GraphicsDesc d = output_pass(frame, "pbr.hlsl:PSMain", false);
+		d.vertex = "pbr.hlsl:VSMain";
+		Pipeline &opaque = frame.shaders->graphics("pbr hlsl", d);
+		d.blend = Blend::Alpha;
+		d.depth_write = false;
+		Pipeline &blended = frame.shaders->graphics("pbr hlsl blended", d);
+		frame.begin_output();
+		frame.scene->draw(cb, opaque, DrawFilter::Opaque, frame.camera_position, c);
+		frame.draw_sky();
+		frame.scene->draw(cb, blended, DrawFilter::Transparent, frame.camera_position, c);
+		frame.end_output();
+	}
 };
 
 // ---- Forward Blinn-Phong -------------------------------------------------------------------------------------------
@@ -719,6 +749,7 @@ int main(int argc, char **argv)
 {
 	Lab lab;
 	lab.add(std::make_unique<ForwardPbr>());
+	lab.add(std::make_unique<ForwardPbrHlsl>());
 	lab.add(std::make_unique<BlinnPhong>());
 	lab.add(std::make_unique<DeferredSsao>());
 	lab.add(std::make_unique<HybridRt>());
@@ -726,7 +757,7 @@ int main(int argc, char **argv)
 	lab.add(std::make_unique<MeshletPbr>());
 	lab.add(std::make_unique<SkyOnly>());
 	LabConfig config;
-	config.title = "RenderLab Vulkan";
+	config.title = "RenderLabVulkan";
 	config.shader_folders = {RIMGUI_SHADERS, "shaders"};
 	return lab.run(config, argc, argv);
 }

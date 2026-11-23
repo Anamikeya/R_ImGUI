@@ -568,11 +568,15 @@ int main(int argc, char **argv)
 			}
 		}
 		timers->end_frame();
-		if (++frame == 12) {
+		// Past one averaging window (half a second), so the averages the Timings panel shows are filled too.
+		static const auto started = std::chrono::steady_clock::now();
+		if (++frame >= 12 && std::chrono::steady_clock::now() - started > std::chrono::milliseconds(700)) {
 			current = "timestamps";
 			const bool measured = !timers->stats().empty() && !timers->stats()[0].gpu_history.empty() && timers->stats()[0].gpu_history.back() > 0;
 			check(measured, "GPU time arrives for a timed pass a frame or two later");
-			std::printf("%s timestamps\n", measured ? "PASS" : "FAIL");
+			const bool averaged = !timers->stats().empty() && timers->stats()[0].gpu_ms > 0;
+			check(averaged, "the half-second average of GPU time is filled (" + std::to_string(timers->stats().empty() ? -1.0 : timers->stats()[0].gpu_ms) + " ms)");
+			std::printf("%s timestamps\n", measured && averaged ? "PASS" : "FAIL");
 			rimgui::quit();
 		}
 	}, argc, argv);

@@ -37,6 +37,11 @@ GpuTimers::~GpuTimers()
 void GpuTimers::begin_frame()
 {
 	const auto &c = *vulkan::context();
+	if (!started_) {
+		// The first window starts with the first frame, not with the setup before it (shaders building).
+		started_ = true;
+		window_ = std::chrono::steady_clock::now();
+	}
 	current_ = c.frame_slot;
 	Slot &s = slots_[current_];
 	if (s.used) {
@@ -82,8 +87,10 @@ GpuTimers::Scope::Scope(GpuTimers &timers, VkCommandBuffer cb, std::size_t pass)
 {
 	Slot &s = timers_.slots_[timers_.current_];
 	if (s.used < max_passes) {
-		s.pass_of[s.used] = int(pass);
-		vkCmdWriteTimestamp2(cb_, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, s.pool, s.used * 2);
+		// The pair is taken now, so scopes inside scopes each get their own.
+		query_ = s.used++;
+		s.pass_of[query_] = int(pass);
+		vkCmdWriteTimestamp2(cb_, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, s.pool, query_ * 2);
 		timed_ = true; // Past the limit, a pass this frame gets its CPU time only.
 	}
 }
@@ -92,8 +99,7 @@ GpuTimers::Scope::~Scope()
 {
 	Slot &s = timers_.slots_[timers_.current_];
 	if (timed_) {
-		vkCmdWriteTimestamp2(cb_, VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, s.pool, s.used * 2 + 1);
-		++s.used;
+		vkCmdWriteTimestamp2(cb_, VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, s.pool, query_ * 2 + 1);
 	}
 	if (pass_ < timers_.sums_.size()) {
 		timers_.sums_[pass_].cpu += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start_).count();
@@ -105,6 +111,14 @@ void GpuTimers::end_frame()
 {
 	const auto now = std::chrono::steady_clock::now();
 	if (now - window_ < std::chrono::milliseconds(500)) {
+		return;
+	}
+	// GPU times arrive a frame or two late: a window closes once they have (or after two seconds without any).
+	bool any_gpu = false;
+	for (const Sum &sum : sums_) {
+		any_gpu = any_gpu || sum.gpu_count > 0;
+	}
+	if (!any_gpu && !sums_.empty() && now - window_ < std::chrono::seconds(2)) {
 		return;
 	}
 	window_ = now;
