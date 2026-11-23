@@ -23,7 +23,9 @@
 
 #include <stb_image_write.h>
 
+#include <algorithm>
 #include <array>
+#include <cstdlib>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -388,8 +390,46 @@ void test_timers()
 
 } // namespace
 
+// Two pictures of the same view, from the OpenGL and the Vulkan lab: the mean difference in levels (0 to 255) and the
+// share of pixels that differ by more than 16 levels in any channel, against the limits given.
+int compare_pictures(const fs::path &a, const fs::path &b, double max_mean, double max_share)
+{
+	std::string error;
+	const auto x = decode_image(a, &error), y = decode_image(b, &error);
+	if (!x || !y) {
+		std::printf("FAIL: %s\n", error.c_str());
+		return 1;
+	}
+	if (x->width != y->width || x->height != y->height || x->channels != y->channels) {
+		std::printf("FAIL: %dx%d and %dx%d pictures\n", x->width, x->height, y->width, y->height);
+		return 1;
+	}
+	const int c = x->channels;
+	double total = 0;
+	std::size_t different = 0;
+	const std::size_t pixels = std::size_t(x->width) * std::size_t(x->height);
+	for (std::size_t i = 0; i < pixels; ++i) {
+		int most = 0;
+		for (int k = 0; k < std::min(c, 3); ++k) {
+			const int d = std::abs(int(x->bytes[i * std::size_t(c) + std::size_t(k)]) - int(y->bytes[i * std::size_t(c) + std::size_t(k)]));
+			total += d;
+			most = std::max(most, d);
+		}
+		different += most > 16 ? 1 : 0;
+	}
+	const double mean = total / double(pixels * std::size_t(std::min(c, 3)));
+	const double share = double(different) / double(pixels);
+	const bool ok = mean <= max_mean && share <= max_share;
+	std::printf("%s: mean difference %.3f levels (limit %.3f), %.4f%% of pixels differ by more than 16 levels (limit %.4f%%)\n",
+		ok ? "PASS" : "FAIL", mean, max_mean, share * 100, max_share * 100);
+	return ok ? 0 : 1;
+}
+
 int main(int argc, char **argv)
 {
+	if (argc == 6 && std::string(argv[1]) == "--compare") {
+		return compare_pictures(argv[2], argv[3], std::atof(argv[4]), std::atof(argv[5]));
+	}
 	std::string fixtures;
 	for (int i = 1; i + 1 < argc; ++i) {
 		if (std::string(argv[i]) == "--fixtures") {

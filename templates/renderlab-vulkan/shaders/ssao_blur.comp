@@ -1,0 +1,18 @@
+#version 460
+// A 4x4 box over the SSAO, enough to hide its per-pixel noise (the OpenGL lab's blur, read as texels).
+#include "rimgui_vk.glsl"
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(push_constant, scalar) uniform Constants { uint source; uint target; ivec2 size; } pc;
+
+void main()
+{
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    if (pixel.x >= pc.size.x || pixel.y >= pc.size.y) return;
+    float sum = 0.0;
+    for (int y = -2; y < 2; ++y) {
+        for (int x = -2; x < 2; ++x) {
+            sum += fetch_2d(pc.source, clamp(pixel + ivec2(x, y), ivec2(0), pc.size - 1)).r;
+        }
+    }
+    imageStore(u_images[pc.target], pixel, vec4(sum / 16.0));
+}
