@@ -91,6 +91,41 @@ else()
 endif()
 set(RIMGUI_KIT_SHADER_DIR "${CMAKE_CURRENT_LIST_DIR}/shaders" CACHE INTERNAL "")
 
+# rimgui_rt_vk: the realtime rendering research kit on Vulkan 1.3 (when the Vulkan SDK is installed). See
+# include/rimgui/rt/vk/gpu.h. Shaders compile at run time: GLSL through shaderc, HLSL through DXC.
+if(RIMGUI_HAS_VULKAN)
+	add_library(rimgui_rt_vk STATIC
+		include/rimgui/rt/vk/gpu.h
+		include/rimgui/rt/vk/shader.h
+		include/rimgui/rt/vk/timer.h
+		src/rt/vk/gpu.cpp
+		src/rt/vk/shader.cpp
+		src/rt/vk/timer.cpp
+	)
+	target_link_libraries(rimgui_rt_vk PUBLIC rimgui_rt_core rimgui)
+	target_include_directories(rimgui_rt_vk SYSTEM PRIVATE "${RIMGUI_VULKAN_SDK}/Include/vma" "${RIMGUI_VULKAN_SDK}/Include")
+	target_link_libraries(rimgui_rt_vk PRIVATE
+		"$<IF:$<CONFIG:Debug>,${RIMGUI_VULKAN_SDK}/Lib/shaderc_combinedd.lib,${RIMGUI_VULKAN_SDK}/Lib/shaderc_combined.lib>")
+	if(WIN32)
+		target_link_libraries(rimgui_rt_vk PRIVATE "${RIMGUI_VULKAN_SDK}/Lib/dxcompiler.lib")
+	endif()
+	if(MSVC)
+		target_compile_options(rimgui_rt_vk PRIVATE /W4 /permissive- /utf-8)
+		target_compile_definitions(rimgui_rt_vk PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS)
+	else()
+		target_compile_options(rimgui_rt_vk PRIVATE -Wall -Wextra)
+	endif()
+endif()
+
+# A Vulkan application: DXC's library beside the program, for HLSL.
+function(rimgui_vulkan_app target)
+	if(WIN32 AND RIMGUI_HAS_VULKAN)
+		add_custom_command(TARGET ${target} POST_BUILD
+			COMMAND ${CMAKE_COMMAND} -E copy_if_different "${RIMGUI_VULKAN_SDK}/Bin/dxcompiler.dll" "$<TARGET_FILE_DIR:${target}>"
+			VERBATIM)
+	endif()
+endfunction()
+
 # A research application's shader folder: `RIMGUI_SHADERS` names it in the source tree (edits there reload live), and
 # after each build it and the kit's shaders are copied beside the program, so the program also runs from elsewhere.
 function(rimgui_add_shaders target folder)

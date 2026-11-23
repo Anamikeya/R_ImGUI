@@ -58,10 +58,11 @@ endif()
 # (the function loader), VMA (memory), shaderc (GLSL to SPIR-V) and DXC (HLSL to SPIR-V).
 set(RIMGUI_VULKAN AUTO CACHE STRING "Build the Vulkan backend and kit: ON, OFF, or AUTO (when the Vulkan SDK is found)")
 set(RIMGUI_VULKAN_SDK "$ENV{VULKAN_SDK}" CACHE PATH "The Vulkan SDK's folder; empty: the VULKAN_SDK environment variable")
-set(RIMGUI_HAS_VULKAN OFF)
+# Global (a cache entry), so the application's and the tests' folders see it too.
+set(RIMGUI_HAS_VULKAN OFF CACHE INTERNAL "")
 if(NOT RIMGUI_VULKAN STREQUAL "OFF")
 	if(RIMGUI_VULKAN_SDK AND EXISTS "${RIMGUI_VULKAN_SDK}/Include/vulkan/vulkan.h" AND EXISTS "${RIMGUI_VULKAN_SDK}/Include/Volk/volk.c")
-		set(RIMGUI_HAS_VULKAN ON)
+		set(RIMGUI_HAS_VULKAN ON CACHE INTERNAL "")
 	elseif(RIMGUI_VULKAN STREQUAL "ON")
 		message(FATAL_ERROR "RIMGUI_VULKAN is ON but no Vulkan SDK was found: install it from https://vulkan.lunarg.com "
 			"(the VULKAN_SDK environment variable then names it), or set RIMGUI_VULKAN_SDK")

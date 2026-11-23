@@ -99,6 +99,11 @@ VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(VkDebugUtilsMessageSeverityFlagBit
 					  : severity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT ? 2
 					  : severity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT    ? 1
 																					: 0;
+	// The kit keeps every image in VK_IMAGE_LAYOUT_GENERAL by design (no layout tracking; on current desktop GPUs it
+	// costs nothing measurable), so the layers' "should be TRANSFER_*_OPTIMAL" performance hint is not reported.
+	if (data && data->messageIdNumber == int32_t(0x4dae5635)) {
+		return VK_FALSE;
+	}
 	if (level == 3) {
 		++errors_reported;
 	}

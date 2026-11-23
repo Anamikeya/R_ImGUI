@@ -29,3 +29,16 @@ renderlab_check(compare_difference --technique "Forward PBR" --compare "Forward 
 renderlab_check(environment_pbr --technique "Forward PBR" --environment "${_fixtures}/test_sky.hdr")
 renderlab_check(environment_deferred --technique "Deferred + SSAO" --environment "${_fixtures}/test_sky.hdr")
 renderlab_check(fixed_resolution --technique "Deferred + SSAO" --resolution 1920x1080 --show "SSAO blurred")
+
+# The Vulkan kit's tests: on the real device, with the validation layers on; any validation message fails them.
+if(RIMGUI_HAS_VULKAN)
+	add_executable(rimgui_vk_tests rimgui_vk_tests.cpp)
+	target_link_libraries(rimgui_vk_tests PRIVATE rimgui_rt_vk)
+	target_compile_definitions(rimgui_vk_tests PRIVATE RIMGUI_KIT_SHADERS="${RIMGUI_KIT_SHADER_DIR}")
+	rimgui_vulkan_app(rimgui_vk_tests)
+	if(MSVC)
+		target_compile_options(rimgui_vk_tests PRIVATE /W4 /permissive- /utf-8)
+	endif()
+	add_test(NAME rimgui_vk_tests COMMAND rimgui_vk_tests --vulkan --hidden --validation)
+	set_tests_properties(rimgui_vk_tests PROPERTIES TIMEOUT 120)
+endif()
